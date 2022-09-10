@@ -5,8 +5,8 @@
 # <bitbar.version>v0.8</bitbar.version>
 # <bitbar.author>Your Name</bitbar.author>
 # <bitbar.author.github>hodgesd</bitbar.author.github>
-# <bitbar.desc>Pulls top posts from your favorite Discourse channel.</bitbar.desc>
-# <bitbar.dependencies>python</bitbar.dependencies>
+# <bitbar.desc>Pulls top posts from your favorite Discourse channels.</bitbar.desc>
+# <bitbar.dependencies>python, pandas v1.5.0 (currently at release candidate)</bitbar.dependencies>
 # <bitbar.droptypes>Supported UTI's for dropping things on menu bar</bitbar.droptypes>
 
 # <swiftbar.hideAbout>true</swiftbar.hideAbout>
@@ -40,13 +40,10 @@ def get_discourse_posts(forum_url:str) -> pd:
     url_html = r.text
     posts_df = pd.read_html(url_html, extract_links="all")[0]
     posts_df.columns = ["Headline", "Authors", "Replies", "Views", "Activity"]
-    
     posts_df[['Topic', 'Topic_url']] = pd.DataFrame(posts_df['Headline'].tolist(), index=posts_df.index)   
     posts_df["Category"] = posts_df["Topic"].str.split("  ").str.get(1) # get text before the double space
     posts_df["Topic"] = posts_df["Topic"].str.split("  ").str.get(0) # get text before the double space
     posts_df["Headline"] = [f"{str(x)} [{z}]| href = {y}" for x, y, z in zip(posts_df['Topic'], posts_df['Topic_url'], posts_df['Category'])]
-    # posts_df["Headline"] = [str(x) + '| href = ' + y for x, y in zip(posts_df['Topic'], posts_df['Topic_url'])]
-    # posts_df["Headline"] = posts_df.iloc[:, 0][1].str.split("  ").str.get(0) # get text before the double space
     return posts_df["Headline"].head(MAX_POSTS)
 
 def send_to_bitbar(forum_title:str, posts_df:pd, forum_url:str) -> None:
