@@ -61,3 +61,9 @@ print("---")
 for forum_title, forum_url in forums.items():
     posts_df = get_discourse_posts(forum_url)
     send_to_bitbar(forum_title, posts_df, forum_url)
+    
+# Submenu - Refresh
+print("---")
+print("Submenu Test")
+print("--Menu Item 1")
+print("--Menu Item 2")
