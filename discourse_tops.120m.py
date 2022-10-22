@@ -24,7 +24,7 @@ import requests
 import pandas as pd
 
 
-MAX_POSTS = 7
+MAX_POSTS = 10
 
 
 forums = {
@@ -47,10 +47,8 @@ def get_discourse_posts(forum_url:str) -> pd:
     return posts_df["Headline"].head(MAX_POSTS)
 
 def send_to_bitbar(forum_title:str, posts_df:pd, forum_url:str) -> None:
-    print("---")
-    print(f"**{forum_title}** | href={forum_url} | md=True")
-    print("---")
-    posts_df.apply(lambda x: print(x, end='\n'))
+    print(f"{forum_title} | href = {forum_url}")
+    posts_df.apply(lambda x: print(f"--{x}", end='\n'))
 
 
 # Menu Bar Title
@@ -62,8 +60,3 @@ for forum_title, forum_url in forums.items():
     posts_df = get_discourse_posts(forum_url)
     send_to_bitbar(forum_title, posts_df, forum_url)
     
-# Submenu - Refresh
-print("---")
-print("Submenu Test")
-print("--Menu Item 1")
-print("--Menu Item 2")
