@@ -24,7 +24,7 @@ import requests
 import pandas as pd
 
 
-MAX_POSTS = 10
+MAX_POSTS = 15
 
 
 forums = {
@@ -32,6 +32,10 @@ forums = {
     "Obsidian": "https://forum.obsidian.md/top?period=weekly",
     "Level1Techs":"https://forum.level1techs.com/top?period=weekly",
     "Drafts":"https://forums.getdrafts.com/top?period=monthly",
+    "Traefik":"https://community.traefik.io/top?period=weekly",
+    "Pi-hole":"https://discourse.pi-hole.net/top?period=weekly",
+    "Home Assistant":"https://community.home-assistant.io/top?period=weekly",
+    "Keyboard Maestro":"https://forum.keyboardmaestro.com/top?period=weekly",   
 }
 
 
