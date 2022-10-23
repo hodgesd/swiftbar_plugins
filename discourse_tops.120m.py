@@ -56,11 +56,10 @@ def send_to_bitbar(forum_title:str, posts_df:pd, forum_url:str) -> None:
 
 
 # Menu Bar Title
-print("A"+"\n")
+print(":bubble.left.and.bubble.right: | symbolize=true\n")
 print("---")
 
 # Dropdown Menu - Top Posts from Discourse Forums
 for forum_title, forum_url in forums.items():
     posts_df = get_discourse_posts(forum_url)
     send_to_bitbar(forum_title, posts_df, forum_url)
-    
