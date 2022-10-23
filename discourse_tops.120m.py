@@ -16,7 +16,8 @@
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
 # Todo: add star for posts with high like counts (heatmap ≥ low)
- 
+# Todo: add support to exclude categories 
+
 import requests
 import pandas as pd
 
