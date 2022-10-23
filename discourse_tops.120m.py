@@ -15,10 +15,7 @@
 # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
-# todo:
-# - add drag and drop support for adding new Discourse channels
-# - add support for multiple time periods (daily, weekly, monthly, yearly)
-# - add support for multiple post counts (5, 10, 15, 20, 25, 30, 35, 40, 45, 50)
+# Todo: add star for posts with high like counts (heatmap ≥ low)
  
 import requests
 import pandas as pd
