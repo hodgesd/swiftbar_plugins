@@ -25,7 +25,6 @@ getDOM(url).then((dom) => {
   // Find all the elements with the class "clus"
   const stories = dom.window.document.querySelectorAll('.clus');
   const storiesArray = Array.from(stories);
-  //   console.log(storiesArray);
   // Loop through the stories and output the headline
   storiesArray.forEach((story) => {
     const storySite = story
@@ -36,6 +35,5 @@ getDOM(url).then((dom) => {
     console.log(
       `${storyTitle.slice(0, 70)}...[${storySite}] | href= ${storyLink}`
     );
-    // console.log(story.querySelector('.ourh').textContent);
   });
 });
