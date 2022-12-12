@@ -20,6 +20,8 @@ async function getDOM(url) {
 }
 
 console.log('TM' + '\n---\n');
+// log link to techmeme.com
+console.log('Techmeme | href= https://www.techmeme.com/' + '\n---\n');
 
 getDOM(url).then((dom) => {
   // Find all the elements with the class "clus"
