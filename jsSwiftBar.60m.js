@@ -32,8 +32,6 @@ getDOM(url).then((dom) => {
       .querySelector('a').textContent;
     const storyLink = story.querySelector('.ourh').href;
     const storyTitle = story.querySelector('.ourh').textContent;
-    console.log(
-      `${storyTitle.slice(0, 70)}...[${storySite}] | href= ${storyLink}`
-    );
+    console.log(`${storyTitle}[${storySite}] | href= ${storyLink} length= 90`);
   });
 });
