@@ -2,8 +2,8 @@
 #!unset TERM
 
 # <bitbar.title>Hacker News Headlines - Lite</bitbar.title>
-# <bitbar.author>amrrs</bitbar.author>
-# <bitbar.author.github>amrrs</bitbar.author.github>
+# <bitbar.author>hodgesd</bitbar.author>
+# <bitbar.author.github>hodgesd</bitbar.author.github>
 # <bitbar.desc>Display Top Hacker News Headlines</bitbar.desc>
 # <bitbar.dependencies>python</bitbar.dependencies>
 # <bitbar.image>https://raw.githubusercontent.com/amrrs/hn_headlines_bitbar/master/hn_headlines_bitbar.png</bitbar.image>
@@ -17,6 +17,8 @@ from sys import exit, stdout
 from requests import exceptions, get
 
 print("HN")
+print("---")
+print("Hackers News | href=https://news.ycombinator.com/")
 try:
     content = get("https://hacker-news.firebaseio.com/v0/topstories.json?print=pretty")
 except exceptions.RequestException:
