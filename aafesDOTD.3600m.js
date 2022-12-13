@@ -24,6 +24,8 @@ let monthName = date.toLocaleString('default', { month: 'long' });
 url = `https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=DealoftheDay${day}${monthName}`;
 // url = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=DealoftheDay13December';
 
+dealsURL = `https://www.shopmyexchange.com/savings-center`;
+
 // Function to get the DOM of a webpage
 async function getDOM(url) {
   return await JSDOM.fromURL(url);
@@ -31,15 +33,40 @@ async function getDOM(url) {
 
 console.log('BX' + '\n---\n');
 
-console.log(
-  'The Exchange | href= https://www.shopmyexchange.com/s?Ntt=13DecemberDealoftheDay' +
-    '\n---\n'
-);
+function capitalizeFirstLetter(string) {
+  return string.charAt(0).toUpperCase() + string.slice(1);
+}
+
+getDOM(dealsURL).then((dom) => {
+  const items = dom.window.document.querySelectorAll('.item-content');
+  const itemsArray = Array.from(items);
+  console.log(
+    'Sale Items | href= https://www.shopmyexchange.com/savings-center' +
+      '\n---\n'
+  );
+  // Loop through the items and output the item name, sale price, discount, and link
+  itemsArray.forEach((item) => {
+    const categoryName = item
+      .querySelector('a')
+      .textContent.trim()
+      .replace('select ', '')
+      .split('Off ')[1];
+    const categoryLink = item.querySelector('a').href;
+    const categoryMenuItem = categoryName
+      ? `--${capitalizeFirstLetter(categoryName)}| href= ${categoryLink}`
+      : '';
+    console.log(categoryMenuItem);
+  });
+});
 
 getDOM(url).then((dom) => {
   // Find all DOTD items on sale
   const items = dom.window.document.querySelectorAll('.aafes-thumbnail-item');
   const itemsArray = Array.from(items);
+  console.log(
+    'Deals of the Day | href= https://www.shopmyexchange.com/s?Ntt=13DecemberDealoftheDay' +
+      '\n---\n'
+  );
   // Loop through the items and output the item name, sale price, discount, and link
   itemsArray.forEach((item) => {
     const itemName = item
@@ -57,7 +84,7 @@ getDOM(url).then((dom) => {
       .slice(-4, -1); // get the discount percentage... always 2 digits?
     const itemLink = item.querySelector('a').href;
     console.log(
-      `${itemSalePrice}[-${itemDiscount}] ${itemName} | href= ${itemLink} length= 90`
+      `${itemSalePrice}[-${itemDiscount}] ${itemName} | href= ${itemLink} length= 40`
     );
   });
 });
