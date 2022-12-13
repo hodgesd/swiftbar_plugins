@@ -40,6 +40,15 @@ function capitalizeFirstLetter(string) {
 getDOM(dealsURL).then((dom) => {
   const items = dom.window.document.querySelectorAll('.item-content');
   const itemsArray = Array.from(items);
+  const bannedCategories = [
+    'bras',
+    'garmin',
+    'fujifilm',
+    'military pride',
+    'blue topaz',
+    "burt's bees gift sets",
+    'diamond jewelry',
+  ];
   console.log(
     'Sale Items | href= https://www.shopmyexchange.com/savings-center' +
       '\n---\n'
@@ -52,9 +61,11 @@ getDOM(dealsURL).then((dom) => {
       .replace('select ', '')
       .split('Off ')[1];
     const categoryLink = item.querySelector('a').href;
-    const categoryMenuItem = categoryName
-      ? `--${capitalizeFirstLetter(categoryName)}| href= ${categoryLink}`
-      : '';
+    // Log the category name and link if it's not in the bannedCategories array
+    const categoryMenuItem =
+      categoryName && !bannedCategories.includes(categoryName.toLowerCase())
+        ? `--${capitalizeFirstLetter(categoryName)}| href= ${categoryLink}`
+        : '';
     console.log(categoryMenuItem);
   });
 });
@@ -84,7 +95,7 @@ getDOM(url).then((dom) => {
       .slice(-4, -1); // get the discount percentage... always 2 digits?
     const itemLink = item.querySelector('a').href;
     console.log(
-      `${itemSalePrice}[-${itemDiscount}] ${itemName} | href= ${itemLink} length= 40`
+      `${itemSalePrice}[-${itemDiscount}] ${itemName} | href= ${itemLink} length= 80`
     );
   });
 });
