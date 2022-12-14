@@ -20,8 +20,9 @@ let day = date.getDate();
 let monthName = date.toLocaleString('default', { month: 'long' });
 
 // console.log(`${day}${monthName}`);
-
-url = `https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=DealoftheDay${day}${monthName}`;
+url = `https://www.shopmyexchange.com/s?Ntt=${day}${monthName}DealoftheDay`;
+// url = `https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=DealoftheDay${day}${monthName}`;
+// url = `https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=DealoftheDay${day}${monthName}`;
 // url = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=DealoftheDay13December';
 
 dealsURL = `https://www.shopmyexchange.com/savings-center`;
