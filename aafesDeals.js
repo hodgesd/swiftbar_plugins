@@ -56,9 +56,6 @@ console.log('DOTD' + '\n---\n');
 })();
 
 (async () => {
-  function capitalizeFirstLetter(string) {
-    return string.charAt(0).toUpperCase() + string.slice(1);
-  }
   const browser = await puppeteer.launch();
   const page = await browser.newPage();
   await page.goto('https://www.shopmyexchange.com/savings-center');
@@ -81,6 +78,9 @@ console.log('DOTD' + '\n---\n');
       'Sale Items | href= https://www.shopmyexchange.com/savings-center' +
         '\n---\n'
     );
+    function capitalizeFirstLetter(string) {
+      return string.charAt(0).toUpperCase() + string.slice(1);
+    }
     // Loop through the items and output the item name, sale price, discount, and link
     categoryArray.forEach((category) => {
       const categoryName = category
@@ -92,7 +92,7 @@ console.log('DOTD' + '\n---\n');
       // Log the category name and link if it's not in the bannedCategories array
       const categoryMenuItem =
         categoryName && !bannedCategories.includes(categoryName.toLowerCase())
-          ? `--${categoryName}| href= ${categoryLink}`
+          ? `--${capitalizeFirstLetter(categoryName)}| href= ${categoryLink}`
           : '';
       menuList.push(categoryMenuItem);
     });
