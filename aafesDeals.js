@@ -1,10 +1,10 @@
 #!/usr/local/bin/node
 /*
- * <xbar.title>NBA Bling</xbar.title>
+ * <xbar.title>AAFES Deals</xbar.title>
  * <xbar.version>v1.0</xbar.version>
  * <xbar.author>hodgesd</xbar.author>
  * <xbar.author.github>hodgesd</xbar.author.github>
- * <xbar.desc>AAFES Deal of the Day Sale</xbar.desc>
+ * <xbar.desc>AAFES Deals of the Day</xbar.desc>
  * <xbar.dependencies>node</xbar.dependencies>
  * <xbar.abouturl></xbar.abouturl>
  */
@@ -50,6 +50,55 @@ console.log('DOTD' + '\n---\n');
     return menuArray;
   });
   getDOTD.forEach((item) => {
+    console.log(item);
+  });
+  await browser.close();
+})();
+
+(async () => {
+  function capitalizeFirstLetter(string) {
+    return string.charAt(0).toUpperCase() + string.slice(1);
+  }
+  const browser = await puppeteer.launch();
+  const page = await browser.newPage();
+  await page.goto('https://www.shopmyexchange.com/savings-center');
+
+  const getCategories = await page.evaluate(() => {
+    const menuList = [];
+    const categories = document.querySelectorAll('.item-content');
+    const categoryArray = Array.from(categories);
+    const bannedCategories = [
+      'bras',
+      'garmin',
+      'fujifilm',
+      'military pride',
+      'blue topaz',
+      "burt's bees gift sets",
+      'diamond jewelry',
+    ];
+
+    menuList.push(
+      'Sale Items | href= https://www.shopmyexchange.com/savings-center' +
+        '\n---\n'
+    );
+    // Loop through the items and output the item name, sale price, discount, and link
+    categoryArray.forEach((category) => {
+      const categoryName = category
+        .querySelector('a')
+        .textContent.trim()
+        .replace('select ', '')
+        .split('Off ')[1];
+      const categoryLink = category.querySelector('a').href;
+      // Log the category name and link if it's not in the bannedCategories array
+      const categoryMenuItem =
+        categoryName && !bannedCategories.includes(categoryName.toLowerCase())
+          ? `--${categoryName}| href= ${categoryLink}`
+          : '';
+      menuList.push(categoryMenuItem);
+    });
+    return menuList;
+  });
+  getCategories.forEach((item) => {
     console.log(item);
   });
   await browser.close();
