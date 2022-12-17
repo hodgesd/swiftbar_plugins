@@ -9,6 +9,12 @@
  * <xbar.abouturl>http://varunmalhotra.xyz/blog/2016/02/bitbar-plugins-for-github-and-producthunt.html</xbar.abouturl>
  */
 
+// # <swiftbar.hideAbout>true</swiftbar.hideAbout>
+// # <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
+// # <swiftbar.hideLastUpdated>true</swiftbar.hideLastUpdated>
+// # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
+// # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
+
 const jsdom = require('jsdom');
 const { JSDOM } = jsdom;
 

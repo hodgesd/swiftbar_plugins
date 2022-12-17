@@ -9,6 +9,12 @@
  * <xbar.abouturl></xbar.abouturl>
  */
 
+// # <swiftbar.hideAbout>true</swiftbar.hideAbout>
+// # <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
+// # <swiftbar.hideLastUpdated>true</swiftbar.hideLastUpdated>
+// # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
+// # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
+
 const puppeteer = require('puppeteer');
 
 console.log('BX' + '\n---\n'); // BX is the title of the menu bar item

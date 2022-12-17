@@ -10,6 +10,11 @@
 # <bitbar.version>1.0</bitbar.version>
 # <bitbar.abouturl>https://github.com/amrrs/hn_headlines_bitbar/blob/master/hn_front.120m.py</bitbar.abouturl>
 
+# <swiftbar.hideAbout>true</swiftbar.hideAbout>
+# <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
+# <swiftbar.hideLastUpdated>true</swiftbar.hideLastUpdated>
+# <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
+# <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
 import sys
 from sys import exit, stdout
