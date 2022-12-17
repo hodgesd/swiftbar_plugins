@@ -19,7 +19,7 @@ const puppeteer = require('puppeteer');
 
 console.log('BX' + '\n---\n'); // BX is the title of the menu bar item
 
-(async () => {
+async function getSaleCategories() {
   const SALES_URL = 'https://www.shopmyexchange.com/savings-center';
   const browser = await puppeteer.launch();
   const page = await browser.newPage();
@@ -39,13 +39,55 @@ console.log('BX' + '\n---\n'); // BX is the title of the menu bar item
       'diamond jewelry',
     ];
     menuList.push(
-      `Sale Items | href= https://www.shopmyexchange.com/savings-center` +
+      `Sale Categories | href= https://www.shopmyexchange.com/savings-center` +
         '\n---\n'
     );
     function capitalizeFirstLetter(string) {
       return string.charAt(0).toUpperCase() + string.slice(1);
     }
     // Loop through the items and output the item name, sale price, discount, and link
+
+    async function getSalesItemsFromSalesCategories(url) {
+      // const browser = await puppeteer.launch({ headless: false });
+      const cat_page = await browser.newPage();
+      // console.log(url);
+      await cat_page.goto(url);
+
+      const getItems = await cat_page.evaluate(() => {
+        const categorySalesItems = [];
+        const categoryItems = [
+          ...document.querySelectorAll('.item-tag.save'),
+        ].map((e) => e.parentNode);
+
+        // Loop through the items and output the item name, sale price, discount, and link
+        categoryItems.forEach((catItem) => {
+          const itemName = catItem
+            .querySelector('.aafes-item-name')
+            .querySelector('a')
+            .textContent.trim();
+          const itemLink = catItem.querySelector('a').href;
+          const itemPrice =
+            catItem
+              .querySelector('.item-pricing')
+              .querySelector('.aafes-price-sale')
+              ?.textContent.trim()
+              .split('.')[0] || '🔑';
+          const itemDiscount =
+            catItem
+              .querySelector('.aafes-price-saved')
+              ?.textContent.trim()
+              .slice(-4, -1) || '';
+          const itemMenuItem = `----${itemPrice} [-${itemDiscount}]${itemName} | href= ${itemLink} length= 90`;
+          debugger;
+
+          categorySalesItems.push(itemMenuItem);
+        });
+        // console.log(categorySalesItems);
+        return categorySalesItems;
+      });
+      // await cat_page.close();
+      return getItems;
+    }
     categoryArray.forEach((category) => {
       const categoryName = category
         .querySelector('a')
@@ -58,7 +100,11 @@ console.log('BX' + '\n---\n'); // BX is the title of the menu bar item
         categoryName && !bannedCategories.includes(categoryName.toLowerCase())
           ? `--${capitalizeFirstLetter(categoryName)}| href= ${categoryLink}`
           : '';
+      const categorySumMenuItems =
+        getSalesItemsFromSalesCategories(categoryLink);
+
       menuList.push(categoryMenuItem);
+      menuList.push(categorySumMenuItems);
     });
     return menuList;
   });
@@ -66,11 +112,11 @@ console.log('BX' + '\n---\n'); // BX is the title of the menu bar item
     console.log(item);
   });
   await browser.close();
-})();
+}
 
 const DOTD_URL = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd';
 
-(async () => {
+async function getDOTD() {
   const browser = await puppeteer.launch();
   const page = await browser.newPage();
   await page.goto(DOTD_URL);
@@ -95,7 +141,6 @@ const DOTD_URL = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd';
 
     const salesItemsArray = Array.from(salesItems);
     menuArray.push(salesItemsArray.length + ' items on sale today' + '\n---\n');
-    // console.log(salesItemsArray.length + ' items on sale today' + '\n---\n');
     salesItemsArray.forEach((salesItem) => {
       // const itemName =
       //   salesItem
@@ -110,13 +155,13 @@ const DOTD_URL = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd';
         .querySelector('.aafes-item-name')
         .querySelector('a')
         .textContent.trim();
-      menuArray.push(itemName);
+      // menuArray.push(itemName);
       const itemSalePrice =
         salesItem
           .querySelector('.item-pricing')
           .querySelector('.aafes-price-sale')
           ?.textContent.trim()
-          .slice(-4, -1) || '🔑';
+          .split('.')[0] || '🔑';
       const itemDiscount =
         salesItem
           .querySelector('.aafes-price-saved')
@@ -124,9 +169,8 @@ const DOTD_URL = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd';
           .slice(-4, -1) || ''; // get the discount percentage... always 2 digits?
       const itemLink = salesItem.querySelector('a').href;
 
-      console.log({ itemName });
       menuArray.push(
-        `${itemSalePrice} ${itemDiscount} ${itemName} | href=${itemLink}`
+        `${itemSalePrice} [-${itemDiscount}] ${itemName} | href=${itemLink}`
       );
     });
     return menuArray;
@@ -135,4 +179,7 @@ const DOTD_URL = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd';
     console.log(item);
   });
   await browser.close();
-})();
+}
+
+getSaleCategories();
+getDOTD();
