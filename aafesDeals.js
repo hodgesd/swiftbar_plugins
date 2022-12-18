@@ -141,7 +141,7 @@ console.log('BX' + '\n---\n'); // BX is the title of the menu bar item
   final.forEach((item) => {
     if (item) {
       // console.log(item);
-      console.log(`${capitalizeFirstLetter(item[0])}| href= ${item[1]}`);
+      console.log(`${item[0]}| href= ${item[1]}`);
       if (item[1] !== 'href= https://www.shopmyexchange.com/savings-center') {
         getCategoryDOM(item[1]);
       }
@@ -180,19 +180,19 @@ const DOTD_URL = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd';
     menuArray.push(salesItemsArray.length + ' items on sale today' + '\n---\n');
     // console.log(salesItemsArray.length + ' items on sale today' + '\n---\n');
     salesItemsArray.forEach((salesItem) => {
-      // const itemName =
-      //   salesItem
-      //     .querySelector('.aafes-item-name')
-      //     ?.querySelector('a')
-      //     .textContent.trim() ||
-      //   salesItem
-      //     .querySelector('.title aafes-page-head.mb-0')
-      //     .textContent.trim();
+      const itemName =
+        salesItem
+          .querySelector('.aafes-item-name')
+          ?.querySelector('a')
+          .textContent.trim() ||
+        salesItem
+          .querySelector('.title aafes-page-head.mb-0')
+          .textContent.trim();
       // if salesItem.querySelector('.aafes-item-name') exists, use that, otherwise use .title aafes-page-head.mb-0
-      const itemName = salesItem
-        .querySelector('.aafes-item-name')
-        .querySelector('a')
-        .textContent.trim();
+      // const itemName = salesItem
+      //   .querySelector('.aafes-item-name')
+      //   .querySelector('a')
+      //   .textContent.trim();
       menuArray.push(itemName);
       const itemSalePrice =
         salesItem
