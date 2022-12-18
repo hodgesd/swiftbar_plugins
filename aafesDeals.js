@@ -17,10 +17,51 @@
 
 const puppeteer = require('puppeteer');
 
-console.log('BX' + '\n---\n'); // BX is the title of the menu bar item
+const url = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd';
+console.log('DOTD' + '\n---\n');
+(async () => {
+  const browser = await puppeteer.launch();
+  const page = await browser.newPage();
+  await page.goto('https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd');
+  //   await page.waitForSelector('.aafes-section-title');
+
+  const getDOTD = await page.evaluate(() => {
+    const menuArray = [];
+    const salesItems = document.querySelectorAll(
+      '.aafes-thumbnail-item.col-xs-12'
+    );
+    const salesItemsArray = Array.from(salesItems);
+    console.log(salesItemsArray.length + ' items on sale today' + '\n---\n');
+    salesItemsArray.forEach((salesItem) => {
+      const itemName = salesItem
+        .querySelector('.aafes-item-name')
+        .querySelector('a')
+        .textContent.trim();
+      const itemSalePrice =
+        salesItem
+          .querySelector('.item-pricing')
+          .querySelector('.aafes-price-sale')
+          ?.textContent.trim()
+          .slice(-4, -1) || '🔑';
+      const itemDiscount =
+        salesItem
+          .querySelector('.aafes-price-saved')
+          ?.textContent.trim()
+          .slice(-4, -1) || ''; // get the discount percentage... always 2 digits?
+      const itemLink = salesItem.querySelector('a').href;
+      menuArray.push(
+        `${itemSalePrice} ${itemDiscount} ${itemName} | href=${itemLink}`
+      );
+    });
+    return menuArray;
+  });
+  getDOTD.forEach((item) => {
+    console.log(item);
+  });
+  await browser.close();
+})();
 
 (async () => {
-  const SALES_URL = 'https://www.shopmyexchange.com/savings-center';
   const browser = await puppeteer.launch();
   const page = await browser.newPage();
   await page.goto('https://www.shopmyexchange.com/savings-center');
@@ -38,8 +79,13 @@ console.log('BX' + '\n---\n'); // BX is the title of the menu bar item
       "burt's bees gift sets",
       'diamond jewelry',
     ];
+
     menuList.push(
+<<<<<<< HEAD
       `Sale Categories | href= https://www.shopmyexchange.com/savings-center` +
+=======
+      'Sale Items | href= https://www.shopmyexchange.com/savings-center' +
+>>>>>>> parent of eb26848 (aafes: added support for ecommerce dotds)
         '\n---\n'
     );
     function capitalizeFirstLetter(string) {
@@ -150,6 +196,7 @@ console.log('BX' + '\n---\n'); // BX is the title of the menu bar item
 
   await browser.close();
 })();
+<<<<<<< HEAD
 
 const DOTD_URL = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd';
 
@@ -219,3 +266,5 @@ const DOTD_URL = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd';
   });
   await browser.close();
 })();
+=======
+>>>>>>> parent of eb26848 (aafes: added support for ecommerce dotds)
