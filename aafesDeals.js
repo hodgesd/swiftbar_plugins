@@ -72,9 +72,6 @@ console.log('BX' + '\n---\n');
           ?.textContent.trim()
           .slice(-4, -1) || ''; // get the discount percentage... always 2 digits?
       const itemLink = salesItem.querySelector('a').href;
-      // console.log(
-      //   `--${itemSalePrice} ${itemDiscount} ${itemName} | href=${itemLink}`
-      // );
       menuArray.push(
         `${itemSalePrice} ${itemDiscount} ${itemName} | href=${itemLink}`
       );
