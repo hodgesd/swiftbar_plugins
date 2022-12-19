@@ -26,17 +26,12 @@ console.log('BX' + '\n---\n');
   const browser = await puppeteer.launch();
   const page = await browser.newPage();
   await page.goto('https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd');
-  // wait 1 second for the page to load
-
-  // await page.waitForSelector('.aafes-page-head.mb-0');
-  // await page.waitForTimeout(1000);
 
   const getDOTD = await page.evaluate(() => {
     const menuArray = [];
     const salesItems = document.querySelectorAll(
       '.aafes-thumbnail-item.col-xs-12'
     );
-    // menuArray.push(salesItems + ' items on sale today' + '\n---\n');
     // If salesItems is empty, search for aafes-page-head and get the DOTD info
 
     if (!salesItems.length) {
@@ -59,7 +54,6 @@ console.log('BX' + '\n---\n');
       );
     }
     const salesItemsArray = Array.from(salesItems);
-    // console.log(salesItemsArray.length + ' items on sale today' + '\n---\n');
     // menuArray.push(salesItemsArray.length + ' items on sale today' + '\n---\n');
     salesItemsArray.forEach((salesItem) => {
       const itemName = salesItem
@@ -159,7 +153,6 @@ console.log('BX' + '\n---\n');
 
           categorySalesItems.push(itemMenuItem);
         });
-        // console.log(categorySalesItems);
         return categorySalesItems;
       });
       // await cat_page.close();
