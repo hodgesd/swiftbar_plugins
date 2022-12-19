@@ -178,11 +178,6 @@ console.log('BX' + '\n---\n');
     });
     return menuList;
   });
-  function capitalizeFirstLetter(string) {
-    return string.charAt(0).toUpperCase() + string.slice(1);
-  }
-
-  const final = getCategories;
 
   async function getCategoryDOM(categoryLink) {
     const page = await browser.newPage();
@@ -204,13 +199,11 @@ console.log('BX' + '\n---\n');
       });
       return;
     });
-
     return getCatItems;
   }
 
-  final.forEach((item) => {
+  getCategories.forEach((item) => {
     if (item) {
-      // console.log(item);
       console.log(item);
     }
   });
