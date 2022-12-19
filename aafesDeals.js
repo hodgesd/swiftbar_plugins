@@ -17,21 +17,50 @@
 
 const puppeteer = require('puppeteer');
 
+// **** DOTD Sales ****
+
 const url = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd';
-console.log('DOTD' + '\n---\n');
+console.log('BX' + '\n---\n');
 (async () => {
+  console.log('test' + '\n---\n');
   const browser = await puppeteer.launch();
   const page = await browser.newPage();
   await page.goto('https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd');
-  //   await page.waitForSelector('.aafes-section-title');
+  // wait 1 second for the page to load
+
+  // await page.waitForSelector('.aafes-page-head.mb-0');
+  // await page.waitForTimeout(1000);
 
   const getDOTD = await page.evaluate(() => {
     const menuArray = [];
     const salesItems = document.querySelectorAll(
       '.aafes-thumbnail-item.col-xs-12'
     );
+    // menuArray.push(salesItems + ' items on sale today' + '\n---\n');
+    // If salesItems is empty, search for aafes-page-head and get the DOTD info
+
+    if (!salesItems.length) {
+      // if .aafes-page-head.mb-0 exists, use that, otherwise 'No sales items found today'
+      const itemName = document.querySelector('.aafes-page-head.mb-0')
+        ? document.querySelector('.aafes-page-head.mb-0').textContent.trim()
+        : 'No sales items found today';
+      const itemSalePrice =
+        document
+          .querySelector('.aafes-price-sale')
+          ?.textContent.trim()
+          .split('.')[0] || '🔑';
+      const itemDiscount =
+        document
+          .querySelector('.aafes-price-saved')
+          ?.textContent.trim()
+          .slice(-4, -1) || '';
+      menuArray.push(
+        `${itemSalePrice} [-${itemDiscount}] ${itemName} | href=https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd`
+      );
+    }
     const salesItemsArray = Array.from(salesItems);
-    console.log(salesItemsArray.length + ' items on sale today' + '\n---\n');
+    // console.log(salesItemsArray.length + ' items on sale today' + '\n---\n');
+    // menuArray.push(salesItemsArray.length + ' items on sale today' + '\n---\n');
     salesItemsArray.forEach((salesItem) => {
       const itemName = salesItem
         .querySelector('.aafes-item-name')
@@ -49,17 +78,23 @@ console.log('DOTD' + '\n---\n');
           ?.textContent.trim()
           .slice(-4, -1) || ''; // get the discount percentage... always 2 digits?
       const itemLink = salesItem.querySelector('a').href;
+      // console.log(
+      //   `--${itemSalePrice} ${itemDiscount} ${itemName} | href=${itemLink}`
+      // );
       menuArray.push(
         `${itemSalePrice} ${itemDiscount} ${itemName} | href=${itemLink}`
       );
     });
     return menuArray;
   });
+
   getDOTD.forEach((item) => {
     console.log(item);
   });
   await browser.close();
 })();
+
+// **** Sales Categories ****
 
 (async () => {
   const browser = await puppeteer.launch();
@@ -81,11 +116,7 @@ console.log('DOTD' + '\n---\n');
     ];
 
     menuList.push(
-<<<<<<< HEAD
-      `Sale Categories | href= https://www.shopmyexchange.com/savings-center` +
-=======
-      'Sale Items | href= https://www.shopmyexchange.com/savings-center' +
->>>>>>> parent of eb26848 (aafes: added support for ecommerce dotds)
+      'Weekly Sale Categories | href= https://www.shopmyexchange.com/savings-center' +
         '\n---\n'
     );
     function capitalizeFirstLetter(string) {
@@ -144,13 +175,13 @@ console.log('DOTD' + '\n---\n');
       // Log the category name and link if it's not in the bannedCategories array
       const categoryMenuItem =
         categoryName && !bannedCategories.includes(categoryName.toLowerCase())
-          ? `--${capitalizeFirstLetter(categoryName)}| href= ${categoryLink}`
+          ? `${capitalizeFirstLetter(categoryName)}| href= ${categoryLink}`
           : '';
       const categorySumMenuItems =
         getSalesItemsFromSalesCategories(categoryLink);
 
       menuList.push(categoryMenuItem);
-      menuList.push(categorySumMenuItems);
+      // menuList.push(categorySumMenuItems);
     });
     return menuList;
   });
@@ -187,84 +218,9 @@ console.log('DOTD' + '\n---\n');
   final.forEach((item) => {
     if (item) {
       // console.log(item);
-      console.log(`${item[0]}| href= ${item[1]}`);
-      if (item[1] !== 'href= https://www.shopmyexchange.com/savings-center') {
-        getCategoryDOM(item[1]);
-      }
+      console.log(item);
     }
   });
 
   await browser.close();
 })();
-<<<<<<< HEAD
-
-const DOTD_URL = 'https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd';
-
-(async () => {
-  const browser = await puppeteer.launch();
-  const page = await browser.newPage();
-  await page.goto(DOTD_URL);
-  //   await page.waitForSelector('.aafes-section-title');
-
-  const getDOTD = await page.evaluate(() => {
-    const menuArray = [];
-    const salesItems = document.querySelectorAll(
-      '.aafes-thumbnail-item.col-xs-12'
-    );
-
-    if (!salesItems.length) {
-      // if .aafes-page-head.mb-0 exists, use that, otherwise 'No sales items found today'
-      const itemName = document.querySelector('.aafes-page-head.mb-0')
-        ? document.querySelector('.aafes-page-head.mb-0').textContent.trim()
-        : 'No sales items found today';
-      const itemLink = document.querySelector('.aafes-page-head.mb-0')
-        ? document.querySelector('.aafes-page-head.mb-0').href
-        : '';
-      menuArray.push(itemName + ' | href=' + itemLink);
-    }
-
-    const salesItemsArray = Array.from(salesItems);
-    menuArray.push(salesItemsArray.length + ' items on sale today' + '\n---\n');
-    // console.log(salesItemsArray.length + ' items on sale today' + '\n---\n');
-    salesItemsArray.forEach((salesItem) => {
-      const itemName =
-        salesItem
-          .querySelector('.aafes-item-name')
-          ?.querySelector('a')
-          .textContent.trim() ||
-        salesItem
-          .querySelector('.title aafes-page-head.mb-0')
-          .textContent.trim();
-      // if salesItem.querySelector('.aafes-item-name') exists, use that, otherwise use .title aafes-page-head.mb-0
-      // const itemName = salesItem
-      //   .querySelector('.aafes-item-name')
-      //   .querySelector('a')
-      //   .textContent.trim();
-      menuArray.push(itemName);
-      const itemSalePrice =
-        salesItem
-          .querySelector('.item-pricing')
-          .querySelector('.aafes-price-sale')
-          ?.textContent.trim()
-          .slice(-4, -1) || '🔑';
-      const itemDiscount =
-        salesItem
-          .querySelector('.aafes-price-saved')
-          ?.textContent.trim()
-          .slice(-4, -1) || ''; // get the discount percentage... always 2 digits?
-      const itemLink = salesItem.querySelector('a').href;
-
-      console.log({ itemName });
-      menuArray.push(
-        `${itemSalePrice} ${itemDiscount} ${itemName} | href=${itemLink}`
-      );
-    });
-    return menuArray;
-  });
-  getDOTD.forEach((item) => {
-    console.log(item);
-  });
-  await browser.close();
-})();
-=======
->>>>>>> parent of eb26848 (aafes: added support for ecommerce dotds)
