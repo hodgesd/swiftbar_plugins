@@ -75,7 +75,7 @@ console.log('BX' + '\n---\n');
           .querySelector('.item-pricing')
           .querySelector('.aafes-price-sale')
           ?.textContent.trim()
-          .split('.')[0] || '🔑';
+          .split('.')[0] || ' 🔑 ';
       const itemDiscount =
         salesItem
           .querySelector('.aafes-price-saved')
@@ -83,7 +83,9 @@ console.log('BX' + '\n---\n');
           .slice(-4, -1) || ''; // get the discount percentage... always 2 digits?
       const itemLink = salesItem.querySelector('a').href;
       menuArray.push(
-        `${itemSalePrice} [-${itemDiscount}] ${itemName} | href=${itemLink}`
+        `${itemSalePrice} ${
+          itemDiscount ? '[-' + itemDiscount + ']' : ''
+        } ${itemName} | href=${itemLink}`
       );
     });
     return menuArray;
