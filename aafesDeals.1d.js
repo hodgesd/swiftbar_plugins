@@ -29,12 +29,14 @@ console.log('BX' + '\n---\n');
 
   const getDOTD = await page.evaluate(() => {
     const menuArray = [];
-    const brandTag = document
-      .querySelector('.filter.slick-slide.slick-current.slick-active')
-      .textContent.trim();
-    const breadcrumb = document
-      .querySelector('.aafes-breadcrumb')
-      .querySelector("a[style='text-transform: none;']").textContent;
+    const brandTag =
+      document
+        .querySelector('.filter.slick-slide.slick-current.slick-active')
+        ?.textContent.trim() || '';
+    const breadcrumb =
+      document
+        .querySelector('.aafes-breadcrumb')
+        ?.querySelector("a[style='text-transform: none;']")?.textContent || '';
 
     menuArray.push(
       `DOTD > ${breadcrumb} > ${brandTag}| size=16 href=https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd`
@@ -68,13 +70,13 @@ console.log('BX' + '\n---\n');
     salesItemsArray.forEach((salesItem) => {
       const itemName = salesItem
         .querySelector('.aafes-item-name')
-        .querySelector('a')
+        ?.querySelector('a')
         .textContent.trim();
       const itemSalePrice =
         salesItem
           .querySelector('.item-pricing')
-          .querySelector('.aafes-price-sale')
-          ?.textContent.trim()
+          ?.querySelector('.aafes-price-sale')
+          .textContent.trim()
           .split('.')[0] || ' 🔑 ';
       const itemDiscount =
         salesItem
@@ -144,7 +146,7 @@ console.log('BX' + '\n---\n');
         categoryItems.forEach((catItem) => {
           const itemName = catItem
             .querySelector('.aafes-item-name')
-            .querySelector('a')
+            ?.querySelector('a')
             .textContent.trim();
           const itemLink = catItem.querySelector('a').href;
           const itemPrice =
