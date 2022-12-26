@@ -32,14 +32,16 @@ console.log('BX' + '\n---\n');
     const brandTag =
       document
         .querySelector('.filter.slick-slide.slick-current.slick-active')
-        ?.textContent.trim() || '';
+        ?.textContent.trim()
+        .prepend('> ') || '';
     const breadcrumb =
       document
         .querySelector('.aafes-breadcrumb')
-        ?.querySelector("a[style='text-transform: none;']")?.textContent || '';
+        ?.querySelector("a[style='text-transform: none;']")
+        ?.textContent.prepend('> ') || '';
 
     menuArray.push(
-      `DOTD > ${breadcrumb} > ${brandTag}| size=16 href=https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd`
+      `DOTD ${breadcrumb} ${brandTag}| size=16 href=https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd`
     );
     const salesItems = document.querySelectorAll(
       '.aafes-thumbnail-item.col-xs-12'
