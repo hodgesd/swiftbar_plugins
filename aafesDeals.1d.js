@@ -171,11 +171,22 @@ console.log('BX' + '\n---\n');
       getItems;
     }
     categoryArray.forEach((category) => {
-      const categoryName = category
-        .querySelector('a')
-        .textContent.trim()
-        .replace('select ', '')
-        .split('Off ')[1];
+      let categoryName = category.querySelector('a').textContent.trim();
+      // const discount = '';
+      if (categoryName.includes('Off')) {
+        categoryName = categoryName.replace('select ', ''); //.split('Off ')[1];
+        if (categoryName.includes('Off ')) {
+          const categoryDiscount = categoryName
+            .split('Up to ')[1]
+            .split('Off')[0]
+            .trim();
+          categoryName = `[-${categoryDiscount}] ${capitalizeFirstLetter(
+            categoryName.split('Off ')[1]
+          )}`;
+          console.log(categoryDiscount);
+        }
+      }
+
       const categoryLink = category.querySelector('a').href;
       // Log the category name and link if it's not in the bannedCategories array
       const categoryMenuItem =
