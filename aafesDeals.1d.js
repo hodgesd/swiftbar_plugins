@@ -180,9 +180,9 @@ console.log('BX' + '\n---\n');
             .split('Up to ')[1]
             .split('Off')[0]
             .trim();
-          categoryName = `[-${categoryDiscount}] ${capitalizeFirstLetter(
+          categoryName = `${capitalizeFirstLetter(
             categoryName.split('Off ')[1]
-          )}`;
+          )} [-${categoryDiscount}]`;
           console.log(categoryDiscount);
         }
       }
