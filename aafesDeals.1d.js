@@ -32,13 +32,12 @@ console.log('BX' + '\n---\n');
     const brandTag =
       document
         .querySelector('.filter.slick-slide.slick-current.slick-active')
-        ?.textContent.trim()
-        .prepend('> ') || '';
+        ?.textContent.trim() || '';
     const breadcrumb =
       document
         .querySelector('.aafes-breadcrumb')
-        ?.querySelector("a[style='text-transform: none;']")
-        ?.textContent.prepend('> ') || '';
+        .lastElementChild // ?.querySelector("a[style='text-transform: none;']")
+        ?.textContent.trim() || '';
 
     menuArray.push(
       `DOTD ${breadcrumb} ${brandTag}| size=16 href=https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd`
@@ -51,13 +50,13 @@ console.log('BX' + '\n---\n');
     if (!salesItems.length) {
       // if .aafes-page-head.mb-0 exists, use that, otherwise 'No sales items found today'
       const itemName = document.querySelector('.aafes-page-head.mb-0')
-        ? document.querySelector('.aafes-page-head.mb-0').textContent.trim()
+        ? document.querySelector('.aafes-page-head.mb-0')?.textContent.trim()
         : 'No sales items found today';
       const itemSalePrice =
         document
           .querySelector('.aafes-price-sale')
           ?.textContent.trim()
-          .split('.')[0] || '🔑';
+          ?.split('.')[0] || '🔑';
       const itemDiscount =
         document
           .querySelector('.aafes-price-saved')
@@ -78,8 +77,8 @@ console.log('BX' + '\n---\n');
         salesItem
           .querySelector('.item-pricing')
           ?.querySelector('.aafes-price-sale')
-          .textContent.trim()
-          .split('.')[0] || ' 🔑 ';
+          ?.textContent.trim()
+          ?.split('.')[0] || ' 🔑 ';
       const itemDiscount =
         salesItem
           .querySelector('.aafes-price-saved')
@@ -153,10 +152,10 @@ console.log('BX' + '\n---\n');
           const itemLink = catItem.querySelector('a').href;
           const itemPrice =
             catItem
-              .querySelector('.item-pricing')
-              .querySelector('.aafes-price-sale')
+              ?.querySelector('.item-pricing')
+              ?.querySelector('.aafes-price-sale')
               ?.textContent.trim()
-              .split('.')[0] || '🔑';
+              ?.split('.')[0] || '🔑';
           const itemDiscount =
             catItem
               .querySelector('.aafes-price-saved')
@@ -177,11 +176,11 @@ console.log('BX' + '\n---\n');
         categoryName = categoryName.replace('select ', ''); //.split('Off ')[1];
         if (categoryName.includes('Off ')) {
           const categoryDiscount = categoryName
-            .split('Up to ')[1]
-            .split('Off')[0]
+            ?.split('Up to ')[1]
+            ?.split('Off')[0]
             .trim();
           categoryName = `${capitalizeFirstLetter(
-            categoryName.split('Off ')[1]
+            categoryName?.split('Off ')[1]
           )} [-${categoryDiscount}]`;
           console.log(categoryDiscount);
         }
