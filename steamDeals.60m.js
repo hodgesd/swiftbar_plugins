@@ -16,9 +16,9 @@
 // # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
 // TODO: filter out PC games
-// TODO: sort by rating
+// TODO: map ratings to stars
 // TODO: add a link to the game
-// TODO: add description of the game as a tooltip
+// genreTODO: add game
 
 const puppeteer = require('puppeteer');
 const url =
@@ -28,6 +28,7 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
 
 (async () => {
   // console.log('test' + '\n---\n');
+
   const browser = await puppeteer.launch({ headless: true });
   var [page] = await browser.pages();
   await page.goto(
@@ -68,12 +69,18 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
       const gameTitle = game.querySelector(
         '.salepreviewwidgets_StoreSaleWidgetTitle_3jI46'
       )?.textContent;
+      const gameLink = game.querySelector(
+        '.salepreviewwidgets_TitleCtn_1F4bc a'
+      )?.href;
       const gameDescription = game
         .querySelector(
           '.salepreviewwidgets_StoreSaleWidgetShortDesc_VvP06.StoreSaleWidgetShortDesc'
         )
         ?.textContent.replace(/(\r\n|\n|\r)/gm, '')
         .replace(/'/g, '');
+
+      // function to convert text rating to stars
+
       gameList.push(
         `${gameSalePrice} [${gameDiscount}] ${gameTitle} (${gameRating})`
       );
@@ -81,6 +88,7 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
         gameTitle,
         gameSalePrice,
         gameDiscount,
+        gameLink,
         gameRating,
         gameDescription,
       });
@@ -106,12 +114,24 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
     }
     return 0;
   });
+  const ratingScale = {
+    'Overwhelmingly Positive': '⭐⭐⭐⭐',
+    'Very Positive': '⭐⭐⭐',
+    Positive: '⭐⭐',
+    'Mostly Positive': '⭐',
+    Mixed: '🤷🏽‍♂️',
+    'Mostly Negative': '👎🏾',
+    Negative: '👎🏾👎🏾',
+    'Very Negative': '👎🏾👎🏾👎🏾',
+    'Overwhelmingly Negative': '👎🏾👎🏾👎🏾👎🏾',
+    '': '⭐',
+  };
 
   gameJSON.forEach((g) => {
     console.log(
-      `${g.gameSalePrice} [${g.gameDiscount}] ${g.gameTitle} (${
-        g.gameRating
-      }) | tooltip= "${g.gameDescription.toString()}"`
+      `${g.gameSalePrice} [${g.gameDiscount}] ${g.gameTitle} ${
+        ratingScale[g.gameRating]
+      } | tooltip= "${g.gameDescription.toString()}" href=${g.gameLink}`
     );
   });
 
