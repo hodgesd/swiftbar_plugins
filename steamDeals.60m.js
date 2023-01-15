@@ -19,7 +19,6 @@
 // TODO: sort by rating
 // TODO: sort by price
 // TODO: add a link to the game
-// TODO: drop decimals from price
 
 const puppeteer = require('puppeteer');
 const url =
@@ -29,7 +28,7 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
 
 (async () => {
   // console.log('test' + '\n---\n');
-  const browser = await puppeteer.launch({ headless: false });
+  const browser = await puppeteer.launch({ headless: true });
   var [page] = await browser.pages();
   await page.goto(
     'https://store.steampowered.com/specials/?facets13268=6%3A2&offset=12'
@@ -44,6 +43,7 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
 
   const getGames = await page.evaluate(() => {
     const gameList = [];
+    const gameJSON = [];
 
     // Find all the elements with the game class
     const games = document.querySelectorAll(
@@ -71,13 +71,43 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
       gameList.push(
         `${gameSalePrice} [${gameDiscount}] ${gameTitle} (${gameRating})`
       );
+      gameJSON.push({
+        gameTitle,
+        gameSalePrice,
+        gameDiscount,
+        gameRating,
+      });
     });
-    return gameList;
+    return [gameList, gameJSON];
   });
 
-  getGames.forEach((item) => {
-    console.log(item);
+  const [gameList, gameJSON] = getGames;
+
+  // console.log(gameJSON);
+
+  // const gamesSortedByPrice = gameJSON.sort((a, b) => {
+  //   return a.gameSalePrice - b.gameSalePrice;
+  // });
+
+  gameJSON.sort((a, b) => {
+    if (a.gameDiscount < b.gameDiscount) {
+      return 1;
+    }
+    if (a.gameDiscount > b.gameDiscount) {
+      return -1;
+    }
+    return 0;
   });
+
+  gameJSON.forEach((g) => {
+    console.log(
+      `${g.gameSalePrice} [${g.gameDiscount}] ${g.gameTitle} (${g.gameRating})`
+    );
+  });
+
+  // gameList.forEach((item) => {
+  //   console.log(item);
+  // });
   // console.log('yo');
   // console.log(getGames);
   await browser.close();
