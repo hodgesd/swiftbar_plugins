@@ -17,8 +17,8 @@
 
 // TODO: filter out PC games
 // TODO: sort by rating
-// TODO: sort by price
 // TODO: add a link to the game
+// TODO: add description of the game as a tooltip
 
 const puppeteer = require('puppeteer');
 const url =
@@ -68,6 +68,12 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
       const gameTitle = game.querySelector(
         '.salepreviewwidgets_StoreSaleWidgetTitle_3jI46'
       )?.textContent;
+      const gameDescription = game
+        .querySelector(
+          '.salepreviewwidgets_StoreSaleWidgetShortDesc_VvP06.StoreSaleWidgetShortDesc'
+        )
+        ?.textContent.replace(/(\r\n|\n|\r)/gm, '')
+        .replace(/'/g, '');
       gameList.push(
         `${gameSalePrice} [${gameDiscount}] ${gameTitle} (${gameRating})`
       );
@@ -76,6 +82,7 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
         gameSalePrice,
         gameDiscount,
         gameRating,
+        gameDescription,
       });
     });
     return [gameList, gameJSON];
@@ -89,6 +96,7 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
   //   return a.gameSalePrice - b.gameSalePrice;
   // });
 
+  // descending sort by discount
   gameJSON.sort((a, b) => {
     if (a.gameDiscount < b.gameDiscount) {
       return 1;
@@ -101,7 +109,9 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
 
   gameJSON.forEach((g) => {
     console.log(
-      `${g.gameSalePrice} [${g.gameDiscount}] ${g.gameTitle} (${g.gameRating})`
+      `${g.gameSalePrice} [${g.gameDiscount}] ${g.gameTitle} (${
+        g.gameRating
+      }) | tooltip= "${g.gameDescription.toString()}"`
     );
   });
 
