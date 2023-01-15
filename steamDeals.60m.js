@@ -119,7 +119,7 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
     'Very Positive': '⭐⭐⭐',
     Positive: '⭐⭐',
     'Mostly Positive': '⭐',
-    Mixed: '🤷🏽‍♂️',
+    Mixed: '❓',
     'Mostly Negative': '👎🏾',
     Negative: '👎🏾👎🏾',
     'Very Negative': '👎🏾👎🏾👎🏾',
@@ -130,7 +130,7 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
   gameJSON.forEach((g) => {
     console.log(
       `${g.gameSalePrice} [${g.gameDiscount}] ${g.gameTitle} ${
-        ratingScale[g.gameRating]
+        ratingScale[g.gameRating] ?? '🤷🏽‍♂️'
       } | tooltip= "${g.gameDescription.toString()}" href=${g.gameLink}`
     );
   });
