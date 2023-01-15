@@ -56,9 +56,9 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
 
     // Loop through the games and print game info
     gamesArray.forEach((game) => {
-      const gameSalePrice = game.querySelector(
-        '.salepreviewwidgets_StoreSalePriceBox_Wh0L8'
-      )?.textContent;
+      const gameSalePrice = game
+        .querySelector('.salepreviewwidgets_StoreSalePriceBox_Wh0L8')
+        ?.textContent?.split('.')[0];
       const gameDiscount = game.querySelector(
         '.salepreviewwidgets_StoreSaleDiscountBox_2fpFv'
       )?.textContent;
