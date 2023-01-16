@@ -25,28 +25,53 @@ console.log('🕹️' + '\n---\n');
 console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
 
 (async () => {
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({ headless: false });
   var [page] = await browser.pages();
+  await page.setViewport({ width: 1440, height: 900 });
   await page.goto(
-    'https://store.steampowered.com/specials/?facets13268=6%3A2&offset=12'
+    'https://store.steampowered.com/specials/?facets13268=6%3A2&offset=12/'
   );
 
   // wait for games to load
-  await page
-    .waitForSelector('.salepreviewwidgets_SaleItemBrowserRow_y9MSd')
-    .then(() => {
-      // console.log('selector found');
-    });
+  // await page
+  //   .waitForSelector('.salepreviewwidgets_SaleItemBrowserRow_y9MSd')
+  //   .then(() => {
+  //     // console.log('selector found');
+  //   });
+
+  // await page
+  //   .waitForSelector('.facetedbrowse_FacetValueName_3WMvo')
+  //   .then(() => {});
+  // const element = await page.$('.facetedbrowse_FacetValueName_3WMvo');
+  // await page.evaluate((el) => el.scrollIntoView(), element);
+
+  // Configure the navigation timeout
+  // await page.setDefaultNavigationTimeout(0);
+  // await page.waitForNavigation();
+
+  // const selector = '.salepreviewwidgets_SaleItemBrowserRow_y9MSd';
+  // await page.evaluate((selector) => {
+  //   document.querySelector(selector).scrollIntoView();
+  // }, selector);
+
+  // await page.evaluate((_) => {});
+  // await page.waitForSelector('.facetedbrowse_FacetValueName_3WMvo');
+  await page.click('.facetedbrowse_FacetValueName_3WMvo');
+  await page.waitForSelector('.salepreviewwidgets_SaleItemBrowserRow_y9MSd');
 
   const getGames = await page.evaluate(() => {
     const gameJSON = [];
+
+    window.scrollBy(0, 3500);
+    // Scroll to element
+    const element = document
+      .querySelector('.facetedbrowse_FacetValueName_3WMvo')
+      ?.scrollIntoView();
 
     // Find all the elements with the game class
     const games = document.querySelectorAll(
       '.salepreviewwidgets_SaleItemBrowserRow_y9MSd'
     );
-
-    // if (!q
 
     const gamesArray = Array.from(games);
 
@@ -89,7 +114,11 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
   });
 
   // descending sort by discount
-  getGames.sort((a, b) => {
+
+  const sortedGames = getGames;
+  // await page.waitForNavigation();
+
+  sortedGames.sort((a, b) => {
     if (a.gameDiscount < b.gameDiscount) {
       return 1;
     }
@@ -111,13 +140,13 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
     '': '⭐',
   };
 
-  getGames.forEach((g) => {
+  sortedGames.forEach((g) => {
     console.log(
-      `${g.gameSalePrice} [${g.gameDiscount}] ${g.gameTitle} ${
+      `${g.gameSalePrice} [${g.gameDiscount ?? ''}] ${g.gameTitle} ${
         ratingScale[g.gameRating] ?? '🤷🏽‍♂️'
-      } | tooltip= "${g.gameDescription.toString()}" href=${g.gameLink}`
+      } | tooltip= "${g.gameDescription?.toString()}" href=${g.gameLink}`
     );
   });
-
+  // await page.waitForSelector('.salepreviewwidgets_SaleItemBrowserRow_y9MSd');
   await browser.close();
 })();
