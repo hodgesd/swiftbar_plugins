@@ -16,9 +16,7 @@
 // # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
 // TODO: filter out PC games
-// TODO: map ratings to stars
-// TODO: add a link to the game
-// genreTODO: add game
+// TODO: add game genre
 
 const puppeteer = require('puppeteer');
 const url =
@@ -27,8 +25,6 @@ console.log('🕹️' + '\n---\n');
 console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
 
 (async () => {
-  // console.log('test' + '\n---\n');
-
   const browser = await puppeteer.launch({ headless: true });
   var [page] = await browser.pages();
   await page.goto(
@@ -98,12 +94,6 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
 
   const [gameList, gameJSON] = getGames;
 
-  // console.log(gameJSON);
-
-  // const gamesSortedByPrice = gameJSON.sort((a, b) => {
-  //   return a.gameSalePrice - b.gameSalePrice;
-  // });
-
   // descending sort by discount
   gameJSON.sort((a, b) => {
     if (a.gameDiscount < b.gameDiscount) {
@@ -135,10 +125,5 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
     );
   });
 
-  // gameList.forEach((item) => {
-  //   console.log(item);
-  // });
-  // console.log('yo');
-  // console.log(getGames);
   await browser.close();
 })();
