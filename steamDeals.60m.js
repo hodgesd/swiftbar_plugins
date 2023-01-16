@@ -16,6 +16,7 @@
 // # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
 // TODO: add game genre
+// TODO: get multiple pages of results
 
 const puppeteer = require('puppeteer');
 const url =
@@ -31,8 +32,8 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
     'https://store.steampowered.com/specials/?facets13268=6%3A2&offset=12/'
   );
 
-  await page.click('.facetedbrowse_FacetValueName_3WMvo');
-  await page.waitForSelector('.salepreviewwidgets_SaleItemBrowserRow_y9MSd');
+  await page.click('.facetedbrowse_FacetValueName_3WMvo'); // macOS
+  await page.waitForSelector('.salepreviewwidgets_SaleItemBrowserRow_y9MSd'); // game row
 
   const getGames = await page.evaluate(() => {
     const gameJSON = [];
@@ -118,6 +119,5 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
       } | tooltip= "${g.gameDescription?.toString()}" href=${g.gameLink}`
     );
   });
-  // await page.waitForSelector('.salepreviewwidgets_SaleItemBrowserRow_y9MSd');
   await browser.close();
 })();
