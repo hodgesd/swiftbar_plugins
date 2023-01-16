@@ -24,7 +24,7 @@ console.log('🕹️' + '\n---\n');
 console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
 
 (async () => {
-  const browser = await puppeteer.launch({ headless: false });
+  const browser = await puppeteer.launch({ headless: true });
   var [page] = await browser.pages();
   await page.setViewport({ width: 1440, height: 900 });
   await page.goto(
