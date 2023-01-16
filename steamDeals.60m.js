@@ -39,7 +39,6 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
     });
 
   const getGames = await page.evaluate(() => {
-    const gameList = [];
     const gameJSON = [];
 
     // Find all the elements with the game class
@@ -77,9 +76,6 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
 
       // function to convert text rating to stars
 
-      gameList.push(
-        `${gameSalePrice} [${gameDiscount}] ${gameTitle} (${gameRating})`
-      );
       gameJSON.push({
         gameTitle,
         gameSalePrice,
@@ -89,13 +85,11 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
         gameDescription,
       });
     });
-    return [gameList, gameJSON];
+    return gameJSON;
   });
 
-  const [gameList, gameJSON] = getGames;
-
   // descending sort by discount
-  gameJSON.sort((a, b) => {
+  getGames.sort((a, b) => {
     if (a.gameDiscount < b.gameDiscount) {
       return 1;
     }
@@ -117,7 +111,7 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
     '': '⭐',
   };
 
-  gameJSON.forEach((g) => {
+  getGames.forEach((g) => {
     console.log(
       `${g.gameSalePrice} [${g.gameDiscount}] ${g.gameTitle} ${
         ratingScale[g.gameRating] ?? '🤷🏽‍♂️'
