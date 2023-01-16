@@ -15,7 +15,6 @@
 // # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
 // # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
-// TODO: filter out PC games
 // TODO: add game genre
 
 const puppeteer = require('puppeteer');
@@ -32,30 +31,6 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
     'https://store.steampowered.com/specials/?facets13268=6%3A2&offset=12/'
   );
 
-  // wait for games to load
-  // await page
-  //   .waitForSelector('.salepreviewwidgets_SaleItemBrowserRow_y9MSd')
-  //   .then(() => {
-  //     // console.log('selector found');
-  //   });
-
-  // await page
-  //   .waitForSelector('.facetedbrowse_FacetValueName_3WMvo')
-  //   .then(() => {});
-  // const element = await page.$('.facetedbrowse_FacetValueName_3WMvo');
-  // await page.evaluate((el) => el.scrollIntoView(), element);
-
-  // Configure the navigation timeout
-  // await page.setDefaultNavigationTimeout(0);
-  // await page.waitForNavigation();
-
-  // const selector = '.salepreviewwidgets_SaleItemBrowserRow_y9MSd';
-  // await page.evaluate((selector) => {
-  //   document.querySelector(selector).scrollIntoView();
-  // }, selector);
-
-  // await page.evaluate((_) => {});
-  // await page.waitForSelector('.facetedbrowse_FacetValueName_3WMvo');
   await page.click('.facetedbrowse_FacetValueName_3WMvo');
   await page.waitForSelector('.salepreviewwidgets_SaleItemBrowserRow_y9MSd');
 
@@ -99,8 +74,6 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
         ?.textContent.replace(/(\r\n|\n|\r)/gm, '')
         .replace(/'/g, '');
 
-      // function to convert text rating to stars
-
       gameJSON.push({
         gameTitle,
         gameSalePrice,
@@ -114,9 +87,7 @@ console.log(`Steam Mac Deals | href= ${url}` + '\n---\n');
   });
 
   // descending sort by discount
-
   const sortedGames = getGames;
-  // await page.waitForNavigation();
 
   sortedGames.sort((a, b) => {
     if (a.gameDiscount < b.gameDiscount) {
