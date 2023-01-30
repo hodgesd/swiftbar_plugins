@@ -35,13 +35,14 @@ console.log('BX' + '\n---\n');
         ?.textContent.trim() || '';
     const breadcrumb =
       document
-        .querySelector('.aafes-breadcrumb')
-        .lastElementChild // ?.querySelector("a[style='text-transform: none;']")
+        .querySelector(
+          '#container-content > div.aafes-product-details > div:nth-child(1) > div > nav > a:last-of-type'
+        )
         ?.textContent.trim() || '';
 
-    menuArray.push(
-      `DOTD ${breadcrumb} ${brandTag}| size=16 href=https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd`
-    );
+    // menuArray.push(
+    //   `DOTD ${breadcrumb} ${brandTag}| size=16 href=https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd`
+    // );
     const salesItems = document.querySelectorAll(
       '.aafes-thumbnail-item.col-xs-12'
     );
@@ -63,7 +64,7 @@ console.log('BX' + '\n---\n');
           ?.textContent.trim()
           .slice(-4, -1) || '';
       menuArray.push(
-        `\n---\nDOTD | href=https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd\n---\n${itemSalePrice} [-${itemDiscount}] ${itemName} | href=https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd`
+        `DOTD ${breadcrumb} ${brandTag}| href=https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd\n---\n${itemSalePrice} [-${itemDiscount}] ${itemName} | href=https://www.shopmyexchange.com/s?Dy=1&Nty=1&Ntt=dotd`
       );
     }
     const salesItemsArray = Array.from(salesItems);
