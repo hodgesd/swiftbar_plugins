@@ -25,42 +25,44 @@ console.log('r/' + '\n---\n');
 console.log(`r/Homelab | href= ${URL}` + '\n---\n');
 
 (async () => {
-  const browser = await puppeteer.launch({ slowMo: 250 });
+  const browser = await puppeteer.launch({
+    headless: true,
+  });
   var [page] = await browser.pages();
   await page.setViewport({ width: 1440, height: 900 });
-  await page.goto('https://www.reddit.com/r/homelab/top/?t=day');
-  // await page.waitForSelector('.rpBJOHq2PR60pnwJlUyP0');
-  // const lastClassB = await page.waitForSelector(
-  //   '.rpBJOHq2PR60pnwJlUyP0 ._eYtD2XCVieq6emjKBH3m:last-child'
-  // );
 
-  const lastClassB = await page.$(
-    '.rpBJOHq2PR60pnwJlUyP0 ._eYtD2XCVieq6emjKBH3m:last-child:last-child'
-  );
-  await lastClassB.evaluate((node) => node.scrollIntoView());
+  // await page.goto('https://www.reddit.com/r/homelab/top/?t=day', {
+  //   waitUntil: 'networkidle0',
+  // });
 
+  await Promise.all([
+    page.goto('https://www.reddit.com/r/homelab/top/?t=day', {
+      waitUntil: 'domcontentloaded',
+    }),
+    page.waitForNetworkIdle({ idleTime: 2000 }),
+  ]);
   const getPosts = await page.evaluate(() => {
     const postJSON = [];
+
     const posts = document.querySelectorAll(
-      '.rpBJOHq2PR60pnwJlUyP0 ._eYtD2XCVieq6emjKBH3m'
+      '.rpBJOHq2PR60pnwJlUyP0 ._1oQyIsiPHYt6nx7VOmd1sz.bE7JgM2ex7W3aF3zci5bm.D3IyhBGwXo9jPwz-Ka0Ve'
     );
     postJSON;
     const postsArray = Array.from(posts);
+    // console.log(`postsArray.length: ${postsArray.length}`);
 
     // Loop through the games and print game info
     postsArray.forEach((game) => {
-      const postTitle = game?.textContent;
-      const postLink = game.closest('a')?.href;
-      // const post = game.closest(
-      //   '._1oQyIsiPHYt6nx7VOmd1sz.bE7JgM2ex7W3aF3zci5bm.D3IyhBGwXo9jPwz-Ka0Ve'
-      // );
-
-      const postCategory = game?.closest('div a span')?.textContent;
+      const postTitle = game.querySelector('div a div h3')?.textContent;
+      const postCategory = game.querySelector('div a span')?.textContent;
+      const postLink = game.querySelector(
+        'div.y8HYJ-y_lTUHkQIc1mdCq._2INHSNB8V5eaWp4P0rY_mE a'
+      )?.href;
 
       postJSON.push({
         postTitle,
-        postLink,
         postCategory,
+        postLink,
       });
     });
     return postJSON;
