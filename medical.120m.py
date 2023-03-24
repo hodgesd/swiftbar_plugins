@@ -2,12 +2,12 @@
 #!source ~/.bash_profile
 #!unset TERM
 
-# <bitbar.title>Discourse Top Posts</bitbar.title>
-# <bitbar.version>v0.8</bitbar.version>
-# <bitbar.author>Your Name</bitbar.author>
-# <bitbar.author.github>hodgesd</bitbar.author.github>
-# <bitbar.desc>Pulls top posts from your favorite Discourse channels.</bitbar.desc>
-# <bitbar.dependencies>python, pandas v1.5.0 (currently at release candidate)</bitbar.dependencies>
+# <bitbar.title>FAA Medical Status</bitbar.title>
+# <bitbar.version>v1.0</bitbar.version>
+# <bitbar.author>Derrick Hodges</bitbar.author>
+# <bitbar.author.github>majordouble</bitbar.author.github>
+# <bitbar.desc>Checks and reports status of medical processing</bitbar.desc>
+# <bitbar.dependencies>python, Playwright</bitbar.dependencies>
 # <bitbar.droptypes>Supported UTI's for dropping things on menu bar</bitbar.droptypes>
 
 # <swiftbar.hideAbout>true</swiftbar.hideAbout>
@@ -16,9 +16,11 @@
 # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
-# youtube tutorial: https://youtu.be/qYSWWGz9Z6s
-from playwright.sync_api import Playwright, sync_playwright, expect
 import time
+
+# youtube tutorial: https://youtu.be/qYSWWGz9Z6s
+from playwright.sync_api import Playwright, sync_playwright
+
 import creds
 
 # todo: bold the medical status
@@ -71,3 +73,4 @@ def run(playwright: Playwright) -> None:
 
 with sync_playwright() as playwright:
     run(playwright)
+
