@@ -1,6 +1,6 @@
 #!/usr/local/bin/node
 /*
- * <xbar.title>jsSwiftBar</xbar.title>
+ * <xbar.title>Reddit test</xbar.title>
  * <xbar.version>v1.0</xbar.version>
  * <xbar.author>hodgesd</xbar.author>
  * <xbar.author.github>hodgesd</xbar.author.github>

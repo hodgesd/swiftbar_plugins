@@ -1,4 +1,5 @@
-#!/Users/hodgesd/PycharmProjects/swiftbar_plugins/venv/bin/python3
+#!/Users/hodgesd/PycharmProjects/swiftbar_plugins/.venv/bin/python3.12
+
 """
 <xbar.title>jsSwiftBar</xbar.title>
 <xbar.version>v1.0</xbar.version>
@@ -43,4 +44,6 @@ for story in stories:
         story_title = story.select('.ourh')[0].text
     except Exception:
         pass
-    print(f'{story_title}[{story_site}] | href= {story_link} length= 90')
+    # display_title = story_title if len(story_title) <= 70 else story_title[:67] + '...'
+    # print(f'[{story_site}] {story_title}| href= {story_link} length=90 trim=True tooltip={story_title}')
+    print(f'[{story_site}] {story_title} | href={story_link} length=80')

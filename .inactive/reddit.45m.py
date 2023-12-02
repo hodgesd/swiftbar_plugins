@@ -19,6 +19,8 @@ sys.setdefaultencoding('utf8')
 
 import json
 import urllib2
+
+
 reddit0 = "https://www.reddit.com"
 reddit1 = [
   ["All", "https://www.reddit.com/r/all", ""],
@@ -70,3 +72,4 @@ for r1 in reddit1:
     print ("--          | trim=false size=4")
 print ("---")
 print ("Refresh... | refresh=true")
+

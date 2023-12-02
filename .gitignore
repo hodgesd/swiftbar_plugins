@@ -3,3 +3,4 @@
 .creds/
 faa_creds.py
 creds.py
+.venv

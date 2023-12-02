@@ -23,7 +23,7 @@ from requests import exceptions, get
 
 print("HN")
 print("---")
-print("Hackers News | href=https://news.ycombinator.com/")
+print("Hacker News | href=https://news.ycombinator.com/")
 try:
     content = get("https://hacker-news.firebaseio.com/v0/topstories.json?print=pretty")
 except exceptions.RequestException:
