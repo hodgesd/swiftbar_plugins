@@ -38,4 +38,4 @@ if os.environ.get('env_update') == 'true':
         if e.output:
             error_message += "\nError Output: " + e.output.decode('utf-8')
         print(error_message)
-        send_notification("EM Decision Tools", "Udpate failed. See plugin output for details.")
+        send_notification("EM Decision Tools", "Update failed. See plugin output for details.")
