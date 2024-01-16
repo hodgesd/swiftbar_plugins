@@ -11,19 +11,23 @@ DARING_FIREBALL_RSS_URL = 'https://daringfireball.net/feeds/articles'
 APPLE_NEWSROOM_RSS_URL = 'https://www.apple.com/newsroom/rss-feed.rss'
 MICHAEL_KENNEDY_RSS_URL = 'https://mkennedy.codes/index.xml'
 
+DATE_FORMATS = {
+    'Scott': '%b. %d, %Y',
+    'RSS': '%Y-%m-%dT%H:%M:%SZ',
+    'RSS 2.0': '%a, %d %b %Y %H:%M:%S %z',
+    'Atom': '%Y-%m-%dT%H:%M:%S.%fZ'
+}
 
-def format_scott_news_date(date_str):
-    """Converts a string date in format 'Jan. 10, 2024' to 'm/d/yy'."""
-    dt = datetime.strptime(date_str, '%b. %d, %Y')  # parse the date
-    reformatted_date = dt.strftime('%-m/%-d/%y')  # reformat the date
-    return reformatted_date
 
-
-def format_daring_fireball_date(date_str):
-    """Converts a string date in format '2024-01-14T00:10:00Z' to 'm/d/yy'."""
-    dt = datetime.strptime(date_str, '%Y-%m-%dT%H:%M:%SZ')  # parse the date
-    reformatted_date = dt.strftime('%-m/%-d/%y')  # reformat the date
-    return reformatted_date
+def format_date(date_str, source_type):
+    if date_str == 'No date':
+        return date_str
+    try:
+        dt = datetime.strptime(date_str, DATE_FORMATS[source_type])
+        return dt.strftime('%-m/%-d/%y')
+    except ValueError:
+        print(f"Error parsing date: {date_str} for {source_type}")
+        return 'Invalid date'
 
 
 def fetch_response(url):
@@ -42,21 +46,18 @@ def fetch_news_from_html(url):
         soup = BeautifulSoup(response.text, 'html.parser')
         articles = []
         for li in soup.select('ul.article-listing li'):
-            article = {}
             headline = li.find('h1').find('a')
             time_tag = li.find('time')
-            article['title'] = headline.get_text(strip=True)
-            article['url'] = headline['href']
-            article_date = time_tag.get_text(strip=True) if time_tag else 'No date'
-            article['date'] = format_scott_news_date(article_date)
-            article['summary'] = li.find('div', class_='summary').find('p').get_text(strip=True)
-            articles.append(article)
+            articles.append({
+                'title': headline.get_text(strip=True),
+                'url': headline['href'],
+                'date': format_date(time_tag.get_text(strip=True) if time_tag else 'No date', 'Scott')
+            })
         return articles
-    else:
-        return [{'title': 'Error fetching news', 'url': '#', 'summary': 'Error fetching response'}]
+    return [{'title': 'Error fetching news', 'url': '#', 'summary': 'Error fetching response'}]
 
 
-def fetch_news_from_rss(url):
+def fetch_news_from_rss(url, rss_type):
     response = fetch_response(url)
     if response:
         feed = feedparser.parse(response.content)
@@ -65,64 +66,22 @@ def fetch_news_from_rss(url):
             return []
         articles = []
         for entry in feed.entries:
-            if 'title' in entry and 'link' in entry:
-                entry_date = entry.get('published', 'No date')
-                date = format_daring_fireball_date(entry_date)
-                articles.append({
-                    'title': entry.title,
-                    'url': entry.link,
-                    'date': date
-                })
-        return articles
-    else:
-        print("Could not fetch RSS data.")
-        return []
-
-
-def fetch_news_from_atom_rss(rss_url):
-    news_entries = []
-    response = requests.get(rss_url)
-    soup = BeautifulSoup(response.content, 'html.parser')
-
-    for entry in soup.find_all('entry'):
-        title = entry.title.text.strip()
-        link = entry.link['href']
-        published_raw = entry.updated.text
-        # Convert published date to the required format
-        published_date = datetime.strptime(published_raw, '%Y-%m-%dT%H:%M:%S.%fZ')
-        title_date = published_date.strftime('%m/%d/%y')
-        news_entries.append({
-            'title': title,
-            'url': link,
-            'date': title_date
-        })
-    return news_entries
-
-
-def fetch_news_from_rss_2_0(url):
-    response = fetch_response(url)
-    if response:
-        feed = feedparser.parse(response.content)
-        articles = []
-        for item in feed.entries:
-            title = item.title
-            link = item.link
-            pub_date = item.published
-            date = datetime.strptime(pub_date, '%a, %d %b %Y %H:%M:%S %z').strftime('%m/%d/%y')
+            date_tag = 'published' if rss_type != 'Atom' else 'updated'
+            entry_date = getattr(entry, date_tag, 'No date')
             articles.append({
-                'title': title,
-                'url': link,
-                'date': date
+                'title': entry.title,
+                'url': entry.link,
+                'date': format_date(entry_date, rss_type)
             })
         return articles
-    else:
-        return [{'title': 'Error fetching news', 'url': '#', 'summary': 'Error fetching response'}]
+    return [{'title': 'Error fetching news', 'url': '#', 'summary': 'Error fetching response'}]
 
 
 def main():
     scott_articles = fetch_news_from_html(SCOTT_NEWS_URL)
-    daring_articles = fetch_news_from_rss(DARING_FIREBALL_RSS_URL)
-    apple_articles = fetch_news_from_atom_rss(APPLE_NEWSROOM_RSS_URL)
+    daring_articles = fetch_news_from_rss(DARING_FIREBALL_RSS_URL, 'RSS')
+    apple_articles = fetch_news_from_rss(APPLE_NEWSROOM_RSS_URL, 'Atom')
+    michael_kennedy_articles = fetch_news_from_rss(MICHAEL_KENNEDY_RSS_URL, 'RSS 2.0')
 
     print('􀤦')
     print("---")
@@ -132,19 +91,16 @@ def main():
         print(f"--[{article['date']}] {article['title']} | href={article['url']}")
     print("---")
     # Daring Fireball Submenu
-    print(f"Daring Fireball {len(daring_articles)} | href={DARING_FIREBALL_RSS_URL}")
+    print(f"Daring Fireball | href={DARING_FIREBALL_RSS_URL}")
     for article in daring_articles:
-        if not article['title'].startswith('[Sponsor]'):
-            print(f"--[{article['date']}] {article['title']} | href={article['url']}")
+        print(f"--[{article['date']}] {article['title']} | href={article['url']}")
 
     # Apple Newsroom Submenu
-    print(f"Apple Newsroom {len(apple_articles)} | href={APPLE_NEWSROOM_RSS_URL}")
+    print(f"Apple Newsroom | href={APPLE_NEWSROOM_RSS_URL}")
     for article in apple_articles:
         print(f"--[{article['date']}] {article['title']} | href={article['url']}")
 
     # Michael Kennedy's Articles
-    michael_kennedy_articles = fetch_news_from_rss_2_0(MICHAEL_KENNEDY_RSS_URL)
-    print("---")
     print(f"Michael Kennedy | href={MICHAEL_KENNEDY_RSS_URL}")
     for article in michael_kennedy_articles:
         print(f"--[{article['date']}] {article['title']} | href={article['url']}")
