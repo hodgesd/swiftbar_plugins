@@ -10,6 +10,8 @@ certifi==2023.11.17
     # via requests
 charset-normalizer==3.3.2
     # via requests
+feedparser==6.0.11
+    # via -r requirements.in
 idna==3.6
     # via requests
 numpy==1.26.2
@@ -22,6 +24,8 @@ pytz==2023.3.post1
     # via pandas
 requests==2.31.0
     # via -r requirements.in
+sgmllib3k==1.0.0
+    # via feedparser
 six==1.16.0
     # via python-dateutil
 soupsieve==2.5
