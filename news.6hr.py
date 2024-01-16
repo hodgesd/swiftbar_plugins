@@ -1,33 +1,27 @@
 #!/Users/hodgesd/PycharmProjects/swiftbar_plugins/.venv/bin/python3.12
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import feedparser
 import requests
 from bs4 import BeautifulSoup
 
+ARTICLE_RECENCY_DAYS = 30
+
+# URLs
 SCOTT_NEWS_URL = 'https://www.scott.af.mil/News/'
 DARING_FIREBALL_RSS_URL = 'https://daringfireball.net/feeds/articles'
 APPLE_NEWSROOM_RSS_URL = 'https://www.apple.com/newsroom/rss-feed.rss'
 MICHAEL_KENNEDY_RSS_URL = 'https://mkennedy.codes/index.xml'
 
-DATE_FORMATS = {
-    'Scott': '%b. %d, %Y',
-    'RSS': '%Y-%m-%dT%H:%M:%SZ',
-    'RSS 2.0': '%a, %d %b %Y %H:%M:%S %z',
-    'Atom': '%Y-%m-%dT%H:%M:%S.%fZ'
-}
 
-
-def format_date(date_str, source_type):
-    if date_str == 'No date':
-        return date_str
-    try:
-        dt = datetime.strptime(date_str, DATE_FORMATS[source_type])
-        return dt.strftime('%-m/%-d/%y')
-    except ValueError:
-        print(f"Error parsing date: {date_str} for {source_type}")
-        return 'Invalid date'
+def format_date(date_str):
+    for fmt in ('%b. %d, %Y', '%Y-%m-%dT%H:%M:%SZ', '%a, %d %b %Y %H:%M:%S %z', '%Y-%m-%dT%H:%M:%S.%fZ'):
+        try:
+            return datetime.strptime(date_str, fmt).strftime('%-m/%-d/%y')
+        except ValueError:
+            continue
+    return 'Invalid date'
 
 
 def fetch_response(url):
@@ -40,70 +34,63 @@ def fetch_response(url):
         return None
 
 
-def fetch_news_from_html(url):
+def is_recent_article(article_date_str, days=30):
+    try:
+        article_date = datetime.strptime(article_date_str, '%m/%d/%y')
+        return datetime.now() - article_date <= timedelta(days=days)
+    except ValueError:
+        return False
+
+
+def fetch_news(url, is_html=False, date_tag='published'):
     response = fetch_response(url)
-    if response:
+    if not response:
+        return [{'title': 'Error fetching news', 'url': '#', 'summary': 'Error fetching response'}]
+
+    articles = []
+    if is_html:
         soup = BeautifulSoup(response.text, 'html.parser')
-        articles = []
         for li in soup.select('ul.article-listing li'):
             headline = li.find('h1').find('a')
             time_tag = li.find('time')
-            articles.append({
-                'title': headline.get_text(strip=True),
-                'url': headline['href'],
-                'date': format_date(time_tag.get_text(strip=True) if time_tag else 'No date', 'Scott')
-            })
-        return articles
-    return [{'title': 'Error fetching news', 'url': '#', 'summary': 'Error fetching response'}]
-
-
-def fetch_news_from_rss(url, rss_type):
-    response = fetch_response(url)
-    if response:
+            article_date = format_date(time_tag.get_text(strip=True) if time_tag else 'No date')
+            if is_recent_article(article_date) and '[Sponsor]' not in headline.get_text():
+                articles.append({
+                    'title': headline.get_text(strip=True),
+                    'url': headline['href'],
+                    'date': article_date
+                })
+    else:
         feed = feedparser.parse(response.content)
-        if not feed.entries:
-            print("No entries found in feed. Feed might be empty or not properly parsed.")
-            return []
-        articles = []
         for entry in feed.entries:
-            date_tag = 'published' if rss_type != 'Atom' else 'updated'
-            entry_date = getattr(entry, date_tag, 'No date')
-            articles.append({
-                'title': entry.title,
-                'url': entry.link,
-                'date': format_date(entry_date, rss_type)
-            })
-        return articles
-    return [{'title': 'Error fetching news', 'url': '#', 'summary': 'Error fetching response'}]
+            article_date = format_date(getattr(entry, date_tag, 'No date'))
+            if is_recent_article(article_date) and '[Sponsor]' not in entry.title:
+                articles.append({
+                    'title': entry.title,
+                    'url': entry.link,
+                    'date': article_date
+                })
+
+    return articles
 
 
 def main():
-    scott_articles = fetch_news_from_html(SCOTT_NEWS_URL)
-    daring_articles = fetch_news_from_rss(DARING_FIREBALL_RSS_URL, 'RSS')
-    apple_articles = fetch_news_from_rss(APPLE_NEWSROOM_RSS_URL, 'Atom')
-    michael_kennedy_articles = fetch_news_from_rss(MICHAEL_KENNEDY_RSS_URL, 'RSS 2.0')
+    scott_articles = fetch_news(SCOTT_NEWS_URL, is_html=True)
+    daring_articles = fetch_news(DARING_FIREBALL_RSS_URL)
+    apple_articles = fetch_news(APPLE_NEWSROOM_RSS_URL, date_tag='updated')
+    michael_kennedy_articles = fetch_news(MICHAEL_KENNEDY_RSS_URL)
 
     print('􀤦')
     print("---")
-    # Scott News Submenu
-    print(f"Scott News | href={SCOTT_NEWS_URL}")
-    for article in scott_articles:
-        print(f"--[{article['date']}] {article['title']} | href={article['url']}")
-    print("---")
-    # Daring Fireball Submenu
-    print(f"Daring Fireball | href={DARING_FIREBALL_RSS_URL}")
-    for article in daring_articles:
-        print(f"--[{article['date']}] {article['title']} | href={article['url']}")
-
-    # Apple Newsroom Submenu
-    print(f"Apple Newsroom | href={APPLE_NEWSROOM_RSS_URL}")
-    for article in apple_articles:
-        print(f"--[{article['date']}] {article['title']} | href={article['url']}")
-
-    # Michael Kennedy's Articles
-    print(f"Michael Kennedy | href={MICHAEL_KENNEDY_RSS_URL}")
-    for article in michael_kennedy_articles:
-        print(f"--[{article['date']}] {article['title']} | href={article['url']}")
+    for name, articles, url in [
+        ("Scott News", scott_articles, SCOTT_NEWS_URL),
+        ("Daring Fireball", daring_articles, DARING_FIREBALL_RSS_URL),
+        ("Apple Newsroom", apple_articles, APPLE_NEWSROOM_RSS_URL),
+        ("Michael Kennedy", michael_kennedy_articles, MICHAEL_KENNEDY_RSS_URL)
+    ]:
+        print(f"{name} | href={url}")
+        for article in articles:
+            print(f"--[{article['date']}] {article['title']} | href={article['url']}")
 
 
 if __name__ == "__main__":
