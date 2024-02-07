@@ -1,8 +1,20 @@
 #!/Users/hodgesd/PycharmProjects/swiftbar_plugins/.venv/bin/python3.12
 
+# <bitbar.title>Max Preps Basketball Schedule</bitbar.title>
+# <bitbar.author>hodgesd</bitbar.author>
+# <bitbar.author.github>hodgesd</bitbar.author.github>
+# <bitbar.desc>Display the local preps basketball schedules/ranking/records</bitbar.desc>
+# <bitbar.dependencies>python</bitbar.dependencies>
+# <bitbar.version>1.0</bitbar.version>
+
+# <swiftbar.hideAbout>true</swiftbar.hideAbout>
+# <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
+# <swiftbar.hideLastUpdated>true</swiftbar.hideLastUpdated>
+# <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
+# <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 import requests
 from bs4 import BeautifulSoup, Tag
@@ -22,30 +34,35 @@ class School(BaseModel):
     url: Optional[str] = None
     last_updated: datetime
     record: Optional[str] = None
-    ranking: Optional[str] = None
+    ranking: Optional[int] = None
     schedule: Optional[List[Game]] = None
 
 
-URL_BELLEVILLE_EAST_SCHEDULE = "https://www.maxpreps.com/il/belleville/belleville-east-lancers/basketball/schedule/"
+school_urls = {
+    "BELLEVILLE_EAST": "https://www.maxpreps.com/il/belleville/belleville-east-lancers/basketball/schedule/",
+    "O'FALLON":"https://www.maxpreps.com/il/ofallon/ofallon-panthers/basketball/schedule/",
+    "MASCOUTAH":"https://www.maxpreps.com/il/mascoutah/mascoutah-indians/basketball/schedule/",
+    "BELLEVILLE_WEST":"https://www.maxpreps.com/il/belleville/belleville-west-maroons/basketball/schedule/"
+}
 
 
-def fetch_schedule_html(url: str) -> Optional[Tag]:
+def fetch_html(url: str) -> BeautifulSoup:
+    """Fetches HTML content from a given URL and returns a BeautifulSoup object."""
     response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    schedule_html = soup.select_one(".keYzcI .bOHsiZ:nth-of-type(2)")
-    return schedule_html
+    return BeautifulSoup(response.text, 'html.parser')
 
 
 def fetch_school_data(school: School) -> None:
-    response = requests.get(school.url)
-    soup = BeautifulSoup(response.text, 'html.parser')
+    soup = fetch_html(school.url)
 
     def extract_text(selector: str) -> Optional[str]:
         """Extracts text from a given selector."""
         element = soup.select_one(selector)
         return element.get_text(strip=True) if element else None
 
-    # Use the helper function to extract data
+    future_schedule_html = soup.select_one(".keYzcI .bOHsiZ:nth-of-type(2)")
+    if future_schedule_html:
+        school.schedule = parse_schedule(future_schedule_html)
     school.name = extract_text('a.sub-title')
     school.record = extract_text('.record .block:nth-of-type(1) .data')
     school.ranking = extract_text('.record .block:nth-of-type(3) .data')
@@ -89,34 +106,25 @@ def extract_opponent(td: Tag) -> str:
     return opponent_element.text.strip() if opponent_element else ""
 
 
-def swiftbar_menu(school: School) -> None:
+def generate_swiftbar_menu(urls: Dict[str, str]) -> None:
     print("􁗉")
     print("---")
-    print(f"{school.name} ({school.record}) IL #:{school.ranking} | href = {school.url}")
-    games = get_future_games(school)
-    # print each game as a submenu item
-    for game in games:
-        print(
-            f"--{game.date.strftime('%a, %b %d')}: {game.opponent} {game.home_away} {game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''} "
+    for url_str, url in urls.items():
+        school = process_school(url)
+        print(f"{school.name} ({school.record}) IL #:{school.ranking} | href = {school.url}")
+        for game in school.schedule:
+            print(
+                f"--{game.date.strftime('%a, %b %d')}: {game.opponent} {game.home_away} {game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''} "
 
-        )
+            )
 
 
-def get_future_games(school: School) -> List[Game]:
-    school = fetch_schedule_html(school.url)
-    if school:
-        future_games = parse_schedule(school)
-        if future_games:
-            return future_games
-        else:
-            print("No future games found.")
-    else:
-        print("No future games found.")
+def process_school(url: str) -> School:
+    school = School(url=url,
+                    last_updated=datetime.now())
+    fetch_school_data(school)
+    return school
 
 
 if __name__ == '__main__':
-    sample_school = School(name="Belleville East", mascot="Lancers", url=URL_BELLEVILLE_EAST_SCHEDULE,
-                           last_updated=datetime.now())
-    sample_school.schedule = fetch_schedule_html(sample_school.url)
-    fetch_school_data(sample_school)
-    swiftbar_menu(sample_school)
+    generate_swiftbar_menu(school_urls)
