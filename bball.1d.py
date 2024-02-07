@@ -14,7 +14,7 @@
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup, Tag
@@ -35,7 +35,7 @@ class School(BaseModel):
     last_updated: datetime
     record: Optional[str] = None
     ranking: Optional[int] = None
-    schedule: Optional[List[Game]] = None
+    schedule: Optional[list[Game]] = None
 
 
 school_urls = {
@@ -69,18 +69,17 @@ def fetch_school_data(school: School) -> None:
     school.ranking = int(extracted_ranking) if extracted_ranking else None
 
 
-def parse_schedule(schedule_tag: Tag) -> List[Game]:
-    games = []
-    for tr in schedule_tag.find_all('tr'):
-        tds = tr.find_all('td')
-        if len(tds) >= 4:
-            date = parse_date(tds[0].text.strip())
-            home_away = parse_home_away(tds[1].text)
-            opponent = extract_opponent(tds[1])
-            tipoff_time = parse_tipoff_time(tds[2].text.strip())
-
-            games.append(Game(date=date, home_away=home_away, opponent=opponent, tipoff_time=tipoff_time))
-    return games
+def parse_schedule(schedule_tag: Tag) -> list[Game]:
+    return [
+        Game(
+            date=parse_date(tds[0].text.strip()),
+            home_away=parse_home_away(tds[1].text),
+            opponent=extract_opponent(tds[1]),
+            tipoff_time=parse_tipoff_time(tds[2].text.strip())
+        )
+        for tr in schedule_tag.find_all('tr')
+        if (tds := tr.find_all('td')) and len(tds) >= 4
+    ]
 
 
 def parse_date(date_str: str) -> datetime:
@@ -95,11 +94,7 @@ def parse_tipoff_time(time_str: str) -> Optional[datetime]:
 
 
 def parse_home_away(text: str) -> str:
-    if "@" in text:
-        return "Away"
-    elif "vs" in text:
-        return "Home"
-    return "Neutral"
+    return {"@": "Away", "vs": "Home"}.get(text, "Neutral")
 
 
 def extract_opponent(td: Tag) -> str:
@@ -107,7 +102,7 @@ def extract_opponent(td: Tag) -> str:
     return opponent_element.text.strip() if opponent_element else ""
 
 
-def generate_swiftbar_menu(list_of_schools: List[School]) -> None:
+def generate_swiftbar_menu(list_of_schools: list[School]) -> None:
     sorted_schools = sort_schools(list_of_schools)
     print("􁗉")
     print("---")
@@ -127,16 +122,13 @@ def process_school(url: str) -> School:
     return school
 
 
-def sort_schools(schools: List[School]) -> List[School]:
+def sort_schools(schools: list[School]) -> list[School]:
     # Sort schools by ranking, placing None values at the end in a Pythonic way
     return sorted(schools, key=lambda school: (school.ranking is None, school.ranking))
 
 
-def scrape_schools_data(urls: Dict[str, str]) -> List[School]:
-    school_list = []
-    for url_str, url in urls.items():
-        school_list.append(process_school(url))
-    return school_list
+def scrape_schools_data(urls: dict[str, str]) -> list[School]:
+    return [process_school(url) for url_str, url in urls.items()]
 
 
 if __name__ == '__main__':
