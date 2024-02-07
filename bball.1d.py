@@ -40,17 +40,15 @@ def fetch_school_data(school: School) -> None:
     response = requests.get(school.url)
     soup = BeautifulSoup(response.text, 'html.parser')
 
-    # Extracting the school name
-    name_element = soup.select_one('a.sub-title')
-    school.name = name_element.get_text(strip=True) if name_element else None
+    def extract_text(selector: str) -> Optional[str]:
+        """Extracts text from a given selector."""
+        element = soup.select_one(selector)
+        return element.get_text(strip=True) if element else None
 
-    record_element = soup.select_one('.record .block:nth-of-type(1) .data')
-    school.record = record_element.get_text(strip=True) if record_element else None
-
-    # Extracting the IL Rank
-    ranking_element = soup.select_one('.record .block:nth-of-type(3) .data')
-    school.ranking = ranking_element.get_text(strip=True) if ranking_element else None
-    print(f"{school.ranking=} {school.record=} {school.mascot=}, {school.name=}")
+    # Use the helper function to extract data
+    school.name = extract_text('a.sub-title')
+    school.record = extract_text('.record .block:nth-of-type(1) .data')
+    school.ranking = extract_text('.record .block:nth-of-type(3) .data')
 
 
 def parse_schedule(schedule_tag: Tag) -> List[Game]:
