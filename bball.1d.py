@@ -40,9 +40,9 @@ class School(BaseModel):
 
 school_urls = {
     "BELLEVILLE_EAST": "https://www.maxpreps.com/il/belleville/belleville-east-lancers/basketball/schedule/",
-    "O'FALLON":"https://www.maxpreps.com/il/ofallon/ofallon-panthers/basketball/schedule/",
-    "MASCOUTAH":"https://www.maxpreps.com/il/mascoutah/mascoutah-indians/basketball/schedule/",
-    "BELLEVILLE_WEST":"https://www.maxpreps.com/il/belleville/belleville-west-maroons/basketball/schedule/"
+    "O'FALLON": "https://www.maxpreps.com/il/ofallon/ofallon-panthers/basketball/schedule/",
+    "MASCOUTAH": "https://www.maxpreps.com/il/mascoutah/mascoutah-indians/basketball/schedule/",
+    "BELLEVILLE_WEST": "https://www.maxpreps.com/il/belleville/belleville-west-maroons/basketball/schedule/"
 }
 
 
@@ -65,7 +65,8 @@ def fetch_school_data(school: School) -> None:
         school.schedule = parse_schedule(future_schedule_html)
     school.name = extract_text('a.sub-title')
     school.record = extract_text('.record .block:nth-of-type(1) .data')
-    school.ranking = extract_text('.record .block:nth-of-type(3) .data')
+    extracted_ranking = extract_text('.record .block:nth-of-type(3) .data')
+    school.ranking = int(extracted_ranking) if extracted_ranking else None
 
 
 def parse_schedule(schedule_tag: Tag) -> List[Game]:
@@ -106,12 +107,12 @@ def extract_opponent(td: Tag) -> str:
     return opponent_element.text.strip() if opponent_element else ""
 
 
-def generate_swiftbar_menu(urls: Dict[str, str]) -> None:
+def generate_swiftbar_menu(list_of_schools: List[School]) -> None:
+    sorted_schools = sort_schools(list_of_schools)
     print("􁗉")
     print("---")
-    for url_str, url in urls.items():
-        school = process_school(url)
-        print(f"{school.name} ({school.record}) IL #:{school.ranking} | href = {school.url}")
+    for school in sorted_schools:
+        print(f"[IL #{school.ranking}] {school.name} ({school.record})  | href = {school.url}")
         for game in school.schedule:
             print(
                 f"--{game.date.strftime('%a, %b %d')}: {game.opponent} {game.home_away} {game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''} "
@@ -126,5 +127,18 @@ def process_school(url: str) -> School:
     return school
 
 
+def sort_schools(schools: List[School]) -> List[School]:
+    # Sort schools by ranking, placing None values at the end in a Pythonic way
+    return sorted(schools, key=lambda school: (school.ranking is None, school.ranking))
+
+
+def scrape_schools_data(urls: Dict[str, str]) -> List[School]:
+    school_list = []
+    for url_str, url in urls.items():
+        school_list.append(process_school(url))
+    return school_list
+
+
 if __name__ == '__main__':
-    generate_swiftbar_menu(school_urls)
+    schools = scrape_schools_data(school_urls)
+    generate_swiftbar_menu(schools)
