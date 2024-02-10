@@ -94,7 +94,11 @@ def parse_tipoff_time(time_str: str) -> Optional[datetime]:
 
 
 def parse_home_away(text: str) -> str:
-    return {"@": "Away", "vs": "Home"}.get(text, "Neutral")
+    if "@" in text:
+        return "Away"
+    elif "vs" in text:
+        return "Home"
+    return "Neutral"
 
 
 def extract_opponent(td: Tag) -> str:
