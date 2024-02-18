@@ -46,4 +46,4 @@ for story in stories:
         pass
     # display_title = story_title if len(story_title) <= 70 else story_title[:67] + '...'
     # print(f'[{story_site}] {story_title}| href= {story_link} length=90 trim=True tooltip={story_title}')
-    print(f'[{story_site}] {story_title} | href={story_link} length=LINE_LENGTH')
+    print(f'[{story_site}] {story_title} | href={story_link} length=LINE_LENGTH trim=True tooltip={story_title}')
