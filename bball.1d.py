@@ -98,7 +98,10 @@ def parse_game_url(game_TD: Tag):
 
 
 def parse_date(date_str: str) -> datetime:
-    return datetime.strptime(date_str, '%m/%d').replace(year=datetime.now().year)
+    parse_year = get_basketball_season_year(date_str)
+    parsed_date = datetime.strptime(date_str, '%m/%d').replace(year=parse_year)
+    # print(parsed_date)
+    return parsed_date
 
 
 def parse_tipoff_time(time_str: str) -> Optional[datetime]:
@@ -134,9 +137,9 @@ def generate_swiftbar_menu(list_of_schools: list[School], rank_scope: str = "") 
         if school.schedule:
             for game in school.schedule:
                 if game.home_away == "Home":
-                    print(
-                        f"--{game.date.strftime('%a, %b %d')}: {game.opponent} {game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''} | href = {game.game_url if game.game_url else ''}"
-                    )
+                    game_message = f"{game.date.strftime('%a, %b %d')}: {game.opponent}{game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''}"
+                    game_message.strip()
+                    print(f'--{bold_future(game.date, game_message)}| href = {game.game_url if game.game_url else ""} md=true')
 
 
 def process_school(url: str) -> School:
@@ -155,22 +158,31 @@ def scrape_schools_data(urls: dict[str, str]) -> list[School]:
     return [process_school(url) for url_str, url in urls.items()]
 
 
+def get_month_number(date_string: str) -> int:
+    if '/' in date_string:
+        month_str, day_str = date_string.split("/")
+        return int(month_str)
+    else:
+        month, day = date_string.split()
+        return datetime.strptime(month, "%b").month
+
+
+def get_basketball_season_year(date_str: str) -> int:
+    current_date = datetime.now()
+    month_number = get_month_number(date_str)
+
+    if month_number < 6:  # Basketball season usually starts in June
+        basketball_season_year = current_date.year
+    else:
+        basketball_season_year = current_date.year - 1
+    return basketball_season_year
+
+
 def extract_future_swic_games():
     soup = fetch_html(SWIC_URL)
 
     games = []
     current_date = datetime.now()
-
-    def get_basketball_season_year(date_str: str) -> int:
-        current_date = datetime.now()
-        month, day = date_str.split()
-        month_number = datetime.strptime(month, "%b").month
-
-        if month_number < 6:  # Basketball season usually starts in June
-            basketball_season_year = current_date.year
-        else:
-            basketball_season_year = current_date.year - 1
-        return basketball_season_year
 
     swic_record = extract_overall_record(SWIC_RECORD_URL)
     tbody = soup.find('tbody')
@@ -209,6 +221,7 @@ def extract_future_swic_games():
                         home_away=home_away,
                         opponent=cols[2].text.strip(),
                         tipoff_time=tipoff_time,
+                        game_url=SWIC_RECORD_URL
                     )
                     # print(game)
                     games.append(game)
@@ -234,6 +247,16 @@ def extract_overall_record(url):
     except Exception as e:
         print(f"An error occurred: {e}")
     return None
+
+
+def bold_future(game_date: datetime, message: str) -> str:
+    """Return the message in bold if the game date is in the future, otherwise return the message as is."""
+    # Check if the game date is in the future
+    if game_date >= datetime.now():
+        # print(game_date, game_date >= datetime.now())
+        return f"**{message}**"
+    else:
+        return message
 
 
 if __name__ == '__main__':
