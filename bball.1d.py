@@ -26,6 +26,7 @@ class Game(BaseModel):
     home_away: str
     opponent: str
     tipoff_time: Optional[datetime]
+    game_url: str = None
 
 
 class School(BaseModel):
@@ -81,11 +82,19 @@ def parse_schedule(schedule_tag: Tag) -> list[Game]:
             date=parse_date(tds[0].text.strip()),
             home_away=parse_home_away(tds[1].text),
             opponent=extract_opponent(tds[1]),
-            tipoff_time=parse_tipoff_time(tds[2].text.strip())
+            tipoff_time=parse_tipoff_time(tds[2].text.strip()),
+            game_url=parse_game_url(tds[2])
         )
         for tr in schedule_tag.find_all('tr')
         if (tds := tr.find_all('td')) and len(tds) >= 4
     ]
+
+
+def parse_game_url(game_TD: Tag):
+    a_tag = game_TD.find('a')
+    if a_tag and a_tag.has_attr('href'):
+        return a_tag['href']
+    return ""
 
 
 def parse_date(date_str: str) -> datetime:
@@ -126,7 +135,7 @@ def generate_swiftbar_menu(list_of_schools: list[School], rank_scope: str = "") 
             for game in school.schedule:
                 if game.home_away == "Home":
                     print(
-                        f"--{game.date.strftime('%a, %b %d')}: {game.opponent} {game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''} "
+                        f"--{game.date.strftime('%a, %b %d')}: {game.opponent} {game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''} | href = {game.game_url if game.game_url else ''}"
                     )
 
 
@@ -213,7 +222,7 @@ def extract_overall_record(url):
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
         }
-        response = requests.get(SWIC_RECORD_URL, headers=headers)
+        response = requests.get(url, headers=headers)
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
             # print("HTML content:", soup.prettify())  # Debug statement to check HTML content
