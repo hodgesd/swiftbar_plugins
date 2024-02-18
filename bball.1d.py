@@ -210,7 +210,7 @@ def extract_future_swic_games():
                     tipoff_time = None  # Default tipoff_time to None
 
                     # Only set tipoff_time when home_away is 'home'
-                    if home_away == 'home':
+                    if home_away == 'Home':
                         tipoff_time_str = cols[4].text.strip()
 
                         # Check if the time string ends with "AM" or "PM" and adjust the format string accordingly
