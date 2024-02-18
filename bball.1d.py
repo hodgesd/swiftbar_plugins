@@ -34,7 +34,7 @@ class School(BaseModel):
     url: Optional[str] = None
     last_updated: datetime
     record: Optional[str] = None
-    ranking: Optional[int] = None
+    ranking: Optional[int] = ""
     schedule: Optional[list[Game]] = None
 
 
@@ -42,8 +42,12 @@ school_urls = {
     "BELLEVILLE_EAST": "https://www.maxpreps.com/il/belleville/belleville-east-lancers/basketball/schedule/",
     "O'FALLON": "https://www.maxpreps.com/il/ofallon/ofallon-panthers/basketball/schedule/",
     "MASCOUTAH": "https://www.maxpreps.com/il/mascoutah/mascoutah-indians/basketball/schedule/",
-    "BELLEVILLE_WEST": "https://www.maxpreps.com/il/belleville/belleville-west-maroons/basketball/schedule/"
+    "BELLEVILLE_WEST": "https://www.maxpreps.com/il/belleville/belleville-west-maroons/basketball/schedule/",
+    "EAST_ST_LOUIS": "https://www.maxpreps.com/il/east-st-louis/east-st-louis-flyers/basketball/schedule/",
 }
+
+SWIC_URL = "https://www.swic.edu/students/services/student-life/athletics/mens-basketball/"
+SWIC_RECORD_URL = "https://www.njcaa.org/sports/mbkb/2023-24/div1/schedule?teamId=mjvavx3krm8kh0zb"
 
 
 def fetch_html(url: str) -> BeautifulSoup:
@@ -106,17 +110,22 @@ def extract_opponent(td: Tag) -> str:
     return opponent_element.text.strip() if opponent_element else ""
 
 
-def generate_swiftbar_menu(list_of_schools: list[School]) -> None:
+def generate_swiftbar_menu(list_of_schools: list[School], rank_scope: str = "") -> None:
     sorted_schools = sort_schools(list_of_schools)
-    print("􁗉")
     print("---")
-    for school in sorted_schools:
-        print(f"[IL #{school.ranking}] {school.name} ({school.record})  | href = {school.url}")
-        for game in school.schedule:
-            print(
-                f"--{game.date.strftime('%a, %b %d')}: {game.opponent} {game.home_away} {game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''} "
 
-            )
+    for school in sorted_schools:
+        if school.ranking:
+            ranking = f"[{rank_scope} #{school.ranking}]"
+        else:
+            ranking = ""
+        print(f"{ranking} {school.name} ({school.record})  | href = {school.url}")
+        if school.schedule:
+            for game in school.schedule:
+                if game.home_away == "Home":
+                    print(
+                        f"--{game.date.strftime('%a, %b %d')}: {game.opponent} {game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''} "
+                    )
 
 
 def process_school(url: str) -> School:
@@ -135,6 +144,91 @@ def scrape_schools_data(urls: dict[str, str]) -> list[School]:
     return [process_school(url) for url_str, url in urls.items()]
 
 
+def extract_future_swic_games():
+    soup = fetch_html(SWIC_URL)
+
+    games = []
+    current_date = datetime.now()
+
+    def get_basketball_season_year(date_str: str) -> int:
+        current_date = datetime.now()
+        month, day = date_str.split()
+        month_number = datetime.strptime(month, "%b").month
+
+        if month_number < 6:  # Basketball season usually starts in June
+            basketball_season_year = current_date.year
+        else:
+            basketball_season_year = current_date.year - 1
+        return basketball_season_year
+
+    swic_record = extract_overall_record(SWIC_RECORD_URL)
+    tbody = soup.find('tbody')
+    if tbody:
+        for row in tbody.find_all('tr'):
+            cols = row.find_all('td')
+            if len(cols) == 6:
+                date_str = cols[0].text.strip()
+
+                # Append the basketball season year to the date string
+                date_str += f" {get_basketball_season_year(date_str)}"
+
+                # Format date_str as a datetime object
+                date = datetime.strptime(date_str, "%b %d %Y")
+                # print(date, current_date, date >= current_date)
+                if date >= current_date:
+                    location = cols[3].text.strip()
+                    home_away = 'Home' if location == 'Belleville' else 'Away'
+
+                    tipoff_time = None  # Default tipoff_time to None
+
+                    # Only set tipoff_time when home_away is 'home'
+                    if home_away == 'home':
+                        tipoff_time_str = cols[4].text.strip()
+
+                        # Check if the time string ends with "AM" or "PM" and adjust the format string accordingly
+                        if tipoff_time_str.endswith("AM") or tipoff_time_str.endswith("PM"):
+                            time_format = "%I:%M%p"
+                        else:
+                            time_format = "%I:%M"
+
+                        tipoff_time = datetime.strptime(tipoff_time_str, time_format) if tipoff_time_str else None
+
+                    game = Game(
+                        date=date,
+                        home_away=home_away,
+                        opponent=cols[2].text.strip(),
+                        tipoff_time=tipoff_time,
+                    )
+                    # print(game)
+                    games.append(game)
+    swic_school = School(name="SWIC", url=SWIC_URL, last_updated=datetime.now(), schedule=games, record=swic_record)
+
+    return swic_school
+
+
+def extract_overall_record(url):
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+        }
+        response = requests.get(SWIC_RECORD_URL, headers=headers)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            # print("HTML content:", soup.prettify())  # Debug statement to check HTML content
+            overall_record_element = soup.find('span', class_='label', string='Overall')
+            if overall_record_element:
+                overall_record_value = overall_record_element.find_next_sibling('span', class_='value')
+                if overall_record_value:
+                    return overall_record_value.get_text(strip=True)
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    return None
+
+
 if __name__ == '__main__':
+    print("􁗉")
+
     schools = scrape_schools_data(school_urls)
-    generate_swiftbar_menu(schools)
+    generate_swiftbar_menu(schools, "IL")
+    swic = extract_future_swic_games()
+    generate_swiftbar_menu([swic])
