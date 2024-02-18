@@ -65,9 +65,13 @@ def fetch_school_data(school: School) -> None:
         element = soup.select_one(selector)
         return element.get_text(strip=True) if element else None
 
-    # future_schedule_html = soup.select_one(".keYzcI .bOHsiZ:nth-of-type(2)")
-    future_schedule_html = soup.select_one("table tbody")
-    # print(future_schedule_html)
+    all_tables = soup.select("table tbody")
+
+    if len(all_tables) > 1:
+        for tr in all_tables[1].find_all('tr'):
+            all_tables[0].append(tr)
+
+    future_schedule_html = all_tables[0]
     if future_schedule_html:
         school.schedule = parse_schedule(future_schedule_html)
     school.name = extract_text('a.sub-title')
@@ -121,7 +125,7 @@ def parse_home_away(text: str) -> str:
 
 def extract_opponent(td: Tag) -> str:
     opponent_element = td.find('span', class_="name")
-    return opponent_element.text.strip() if opponent_element else ""
+    return opponent_element.text.rstrip('*').strip() if opponent_element else ""
 
 
 def generate_swiftbar_menu(list_of_schools: list[School], rank_scope: str = "") -> None:
@@ -136,10 +140,11 @@ def generate_swiftbar_menu(list_of_schools: list[School], rank_scope: str = "") 
         print(f"{ranking} {school.name} ({school.record})  | href = {school.url}")
         if school.schedule:
             for game in school.schedule:
-                if game.home_away == "Home":
-                    game_message = f"{game.date.strftime('%a, %b %d')}: {game.opponent}{game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''}"
-                    game_message.strip()
-                    print(f'--{bold_future(game.date, game_message)}| href = {game.game_url if game.game_url else ""} md=true')
+                if game.home_away == "Home" and game.date > datetime.now():
+                    game_message = f"{game.date.strftime('%a, %b %d')}: {game.opponent} {game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''}"
+                    game_message = game_message.strip()
+                    print(
+                        f'--{bold_future(game.date, game_message)}| href = {game.game_url if game.game_url else ""} md=true')
 
 
 def process_school(url: str) -> School:
@@ -223,7 +228,6 @@ def extract_future_swic_games():
                         tipoff_time=tipoff_time,
                         game_url=SWIC_RECORD_URL
                     )
-                    # print(game)
                     games.append(game)
     swic_school = School(name="SWIC", url=SWIC_URL, last_updated=datetime.now(), schedule=games, record=swic_record)
 
