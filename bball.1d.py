@@ -1,5 +1,5 @@
 #!/Users/hodgesd/PycharmProjects/swiftbar_plugins/.venv/bin/python3.12
-
+import string
 # <bitbar.title>Max Preps Basketball Schedule</bitbar.title>
 # <bitbar.author>hodgesd</bitbar.author>
 # <bitbar.author.github>hodgesd</bitbar.author.github>
@@ -110,6 +110,7 @@ def parse_date(date_str: str) -> datetime:
 
 def parse_tipoff_time(time_str: str) -> Optional[datetime]:
     try:
+        time_str.rstrip(string.ascii_letters) + " PM"
         return datetime.strptime(time_str.upper(), '%I:%M%p')
     except ValueError:
         return None
@@ -144,7 +145,7 @@ def generate_swiftbar_menu(list_of_schools: list[School], rank_scope: str = "") 
                     game_message = f"{game.date.strftime('%a, %b %d')}: {game.opponent} {game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''}"
                     game_message = game_message.strip()
                     print(
-                        f'--{bold_future(game.date, game_message)}| href = {game.game_url if game.game_url else ""} md=true')
+                        f'--{bold_future(game.date, game_message)} | href = {game.game_url if game.game_url else ""} md=true')
 
 
 def process_school(url: str) -> School:
