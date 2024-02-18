@@ -64,7 +64,9 @@ def fetch_school_data(school: School) -> None:
         element = soup.select_one(selector)
         return element.get_text(strip=True) if element else None
 
-    future_schedule_html = soup.select_one(".keYzcI .bOHsiZ:nth-of-type(2)")
+    # future_schedule_html = soup.select_one(".keYzcI .bOHsiZ:nth-of-type(2)")
+    future_schedule_html = soup.select_one("table tbody")
+    # print(future_schedule_html)
     if future_schedule_html:
         school.schedule = parse_schedule(future_schedule_html)
     school.name = extract_text('a.sub-title')
