@@ -287,16 +287,14 @@ def extract_future_college_games(soup) -> list[Game]:
             date_span = a_tag.find('span', class_='Schedule__Time').text.strip()
             year = get_basketball_season_year(date_span)
             parsed_date = datetime.strptime(f"{date_span}/{year}", '%m/%d/%Y')
-            # Assuming the second span contains the time
+π            home_away_span = a_tag.find('span', class_='Schedule_atVs tl mr2').text.strip()
+            home_away = parse_home_away(home_away_span)
             time_span_elements = a_tag.find_all('span', class_='Schedule__Time')
             time_span = time_span_elements[1].text.strip().upper() if len(time_span_elements) > 1 else None
-            home_away_span = a_tag.find('span', class_='Schedule_atVs tl mr2').text.strip()
-            home_away = parse_home_away(home_away_span)
             if home_away == "Home" and parsed_date >= datetime.now() and time_span:
                 tipoff = datetime.strptime(time_span, "%I:%M %p")
             else:
                 tipoff = None
-            # print(f'{parsed_date=} {home_away_span=} {home_away=} {opponent_span=} {tipoff=}')
             games.append(Game(date=parsed_date, home_away=home_away, opponent=opponent_span, tipoff_time=tipoff,
                               game_url=game_url))
     return games
