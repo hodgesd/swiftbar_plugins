@@ -1,24 +1,25 @@
 #!/Users/hodgesd/PycharmProjects/swiftbar_plugins/.venv/bin/python3.12
+import re
 import string
-# <bitbar.title>Max Preps Basketball Schedule</bitbar.title>
-# <bitbar.author>hodgesd</bitbar.author>
-# <bitbar.author.github>hodgesd</bitbar.author.github>
-# <bitbar.desc>Display the local preps basketball schedules/ranking/records</bitbar.desc>
-# <bitbar.dependencies>python</bitbar.dependencies>
-# <bitbar.version>1.0</bitbar.version>
-
-# <swiftbar.hideAbout>true</swiftbar.hideAbout>
-# <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
-# <swiftbar.hideLastUpdated>true</swiftbar.hideLastUpdated>
-# <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
-# <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
-
 from datetime import datetime
 from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup, Tag
 from pydantic import BaseModel
+
+
+# <bitbar.title>Max Preps Basketball Schedule</bitbar.title>
+# <bitbar.author>hodgesd</bitbar.author>
+# <bitbar.author.github>hodgesd</bitbar.author.github>
+# <bitbar.desc>Display the local preps basketball schedules/ranking/records</bitbar.desc>
+# <bitbar.dependencies>python</bitbar.dependencies>
+# <bitbar.version>1.0</bitbar.version>
+# <swiftbar.hideAbout>true</swiftbar.hideAbout>
+# <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
+# <swiftbar.hideLastUpdated>true</swiftbar.hideLastUpdated>
+# <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
+# <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
 
 class Game(BaseModel):
@@ -47,13 +48,22 @@ school_urls = {
     "EAST_ST_LOUIS": "https://www.maxpreps.com/il/east-st-louis/east-st-louis-flyers/basketball/schedule/",
 }
 
+college_urls = {
+    "SLU": "https://www.espn.com/mens-college-basketball/team/_/id/139/saint-louis-billikens",
+}
+
 SWIC_URL = "https://www.swic.edu/students/services/student-life/athletics/mens-basketball/"
 SWIC_RECORD_URL = "https://www.njcaa.org/sports/mbkb/2023-24/div1/schedule?teamId=mjvavx3krm8kh0zb"
 
 
 def fetch_html(url: str) -> BeautifulSoup:
     """Fetches HTML content from a given URL and returns a BeautifulSoup object."""
-    response = requests.get(url)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+    }
+    response = requests.get(url, headers=headers)
+
+    # response = requests.get(url)
     return BeautifulSoup(response.text, 'html.parser')
 
 
@@ -264,10 +274,31 @@ def bold_future(game_date: datetime, message: str) -> str:
         return message
 
 
+def process_colleges(college_urls) -> list[School]:
+    colleges = []
+    for url in college_urls.values():
+        soup = fetch_html(url)
+        school_name = soup.find('span', class_='db pr3 nowrap fw-bold').text
+        mascot = soup.find('span', class_='flex flex-wrap').find('span', class_='db').find_next_sibling('span').text
+
+        record_ranking_ul = soup.find('ul', class_='ClubhouseHeader__Record')
+        record = record_ranking_ul.find_all('li')[0].text  # First li element
+        ranking_str = record_ranking_ul.find_all('li')[1].text  # Second li element
+        ranking = int(re.match(r'\d+', ranking_str).group(0)) if re.match(r'\d+', ranking_str) else None
+
+        college = School(url=url, last_updated=datetime.now(), name=school_name, mascot=mascot, record=record,
+                         ranking=ranking)
+        print(college)
+        colleges.append(college)
+    return colleges
+
+
 if __name__ == '__main__':
     print("􁗉")
 
-    schools = scrape_schools_data(school_urls)
-    generate_swiftbar_menu(schools, "IL")
-    swic = extract_future_swic_games()
-    generate_swiftbar_menu([swic])
+    # schools = scrape_schools_data(school_urls)
+    # generate_swiftbar_menu(schools, "IL")
+    # swic = extract_future_swic_games()
+    # generate_swiftbar_menu([swic])
+    college_list = process_colleges(college_urls)
+    generate_swiftbar_menu(college_list, "Conf")
