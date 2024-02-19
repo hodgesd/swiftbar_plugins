@@ -50,6 +50,9 @@ school_urls = {
 
 college_urls = {
     "SLU": "https://www.espn.com/mens-college-basketball/team/_/id/139/saint-louis-billikens",
+    "SIUE": "https://www.espn.com/mens-college-basketball/team/_/id/2565/siu-edwardsville-cougars",
+    "ILLINOIS": "https://www.espn.com/mens-college-basketball/team/_/id/356/illinois-fighting-illini",
+    "Lindenwood": "https://www.espn.com/mens-college-basketball/team/_/id/2815/lindenwood-lions"
 }
 
 SWIC_URL = "https://www.swic.edu/students/services/student-life/athletics/mens-basketball/"
@@ -104,8 +107,8 @@ def parse_schedule(schedule_tag: Tag) -> list[Game]:
     ]
 
 
-def parse_game_url(game_TD: Tag):
-    a_tag = game_TD.find('a')
+def parse_game_url(game_td: Tag):
+    a_tag = game_td.find('a')
     if a_tag and a_tag.has_attr('href'):
         return a_tag['href']
     return ""
@@ -274,6 +277,31 @@ def bold_future(game_date: datetime, message: str) -> str:
         return message
 
 
+def extract_future_college_games(soup) -> list[Game]:
+    games = []
+    games_html = soup.find_all('a', class_='Schedule__Game', href=True)
+    for a_tag in games_html:
+        if a_tag.find('span', class_='Schedule__Time'):
+            opponent_span = a_tag.find('span', class_='Schedule__Team').text.strip().upper()
+            game_url = soup.find('a', class_='Schedule__Game')['href']
+            date_span = a_tag.find('span', class_='Schedule__Time').text.strip()
+            year = get_basketball_season_year(date_span)
+            parsed_date = datetime.strptime(f"{date_span}/{year}", '%m/%d/%Y')
+            # Assuming the second span contains the time
+            time_span_elements = a_tag.find_all('span', class_='Schedule__Time')
+            time_span = time_span_elements[1].text.strip().upper() if len(time_span_elements) > 1 else None
+            home_away_span = a_tag.find('span', class_='Schedule_atVs tl mr2').text.strip()
+            home_away = parse_home_away(home_away_span)
+            if home_away == "Home" and parsed_date >= datetime.now() and time_span:
+                tipoff = datetime.strptime(time_span, "%I:%M %p")
+            else:
+                tipoff = None
+            # print(f'{parsed_date=} {home_away_span=} {home_away=} {opponent_span=} {tipoff=}')
+            games.append(Game(date=parsed_date, home_away=home_away, opponent=opponent_span, tipoff_time=tipoff,
+                              game_url=game_url))
+    return games
+
+
 def process_colleges(college_urls) -> list[School]:
     colleges = []
     for url in college_urls.values():
@@ -285,20 +313,18 @@ def process_colleges(college_urls) -> list[School]:
         record = record_ranking_ul.find_all('li')[0].text  # First li element
         ranking_str = record_ranking_ul.find_all('li')[1].text  # Second li element
         ranking = int(re.match(r'\d+', ranking_str).group(0)) if re.match(r'\d+', ranking_str) else None
-
+        schedule = extract_future_college_games(soup)
         college = School(url=url, last_updated=datetime.now(), name=school_name, mascot=mascot, record=record,
-                         ranking=ranking)
-        print(college)
+                         ranking=ranking, schedule=schedule)
         colleges.append(college)
     return colleges
 
 
 if __name__ == '__main__':
     print("􁗉")
-
-    # schools = scrape_schools_data(school_urls)
-    # generate_swiftbar_menu(schools, "IL")
-    # swic = extract_future_swic_games()
-    # generate_swiftbar_menu([swic])
+    schools = scrape_schools_data(school_urls)
+    generate_swiftbar_menu(schools, "IL")
+    swic = extract_future_swic_games()
+    generate_swiftbar_menu([swic])
     college_list = process_colleges(college_urls)
     generate_swiftbar_menu(college_list, "Conf")
