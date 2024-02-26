@@ -33,7 +33,8 @@ forums = {
     "Traefik":"https://community.traefik.io/top?period=weekly",
     "Pi-hole":"https://discourse.pi-hole.net/top?period=weekly",
     "Home Assistant":"https://community.home-assistant.io/top?period=weekly",
-    "Keyboard Maestro":"https://forum.keyboardmaestro.com/top?period=weekly",   
+    "Keyboard Maestro":"https://forum.keyboardmaestro.com/top?period=weekly",
+    "Python": "https://discuss.python.org/top?period=weekly",
 }
 
 
