@@ -154,7 +154,7 @@ def generate_swiftbar_menu(list_of_schools: list[School], rank_scope: str = "") 
         print(f"{ranking} {school.name} ({school.record})  | href = {school.url}")
         if school.schedule:
             for game in school.schedule:
-                if game.home_away == "Home" and game.date > datetime.now():
+                if game.home_away == "Home" and game.date.date() >= datetime.now().date():
                     game_message = f"{game.date.strftime('%a, %b %d')}: {game.opponent} {game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else ''}"
                     game_message = game_message.strip()
                     print(
@@ -217,7 +217,7 @@ def extract_future_swic_games():
                 # Format date_str as a datetime object
                 date = datetime.strptime(date_str, "%b %d %Y")
                 # print(date, current_date, date >= current_date)
-                if date >= current_date:
+                if date.date() >= current_date.date():
                     location = cols[3].text.strip()
                     home_away = 'Home' if location == 'Belleville' else 'Away'
 
