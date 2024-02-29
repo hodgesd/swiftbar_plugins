@@ -3,6 +3,7 @@ import re
 import string
 from datetime import datetime
 from typing import Optional
+from urllib.parse import quote
 
 import requests
 from bs4 import BeautifulSoup, Tag
@@ -159,6 +160,10 @@ def generate_swiftbar_menu(list_of_schools: list[School], rank_scope: str = "") 
                     game_message = game_message.strip()
                     print(
                         f'--{bold_future(game.date, game_message)} | href = {game.game_url if game.game_url else ""} md=true')
+                    appointment_str = f"{game.date.strftime('%Y/%m/%d')} at {game.tipoff_time.strftime('%H%M') if game.tipoff_time else ''} {game.opponent} vs {school.name} at {school.name}"
+                    appointment_url_scheme = f'x-fantastical3://parse?add=1&sentence={quote(appointment_str)}'
+
+                    print(f'----Add to Fantastical | href = {appointment_url_scheme} terminal=false')
 
 
 def process_school(url: str) -> School:
@@ -213,14 +218,10 @@ def extract_future_swic_games():
 
                 # Append the basketball season year to the date string
                 date_str += f" {get_basketball_season_year(date_str)}"
-
-                # Format date_str as a datetime object
                 date = datetime.strptime(date_str, "%b %d %Y")
-                # print(date, current_date, date >= current_date)
                 if date.date() >= current_date.date():
                     location = cols[3].text.strip()
                     home_away = 'Home' if location == 'Belleville' else 'Away'
-
                     tipoff_time = None  # Default tipoff_time to None
 
                     # Only set tipoff_time when home_away is 'home'
@@ -228,10 +229,7 @@ def extract_future_swic_games():
                         tipoff_time_str = cols[4].text.strip()
 
                         # Check if the time string ends with "AM" or "PM" and adjust the format string accordingly
-                        if tipoff_time_str.endswith("AM") or tipoff_time_str.endswith("PM"):
-                            time_format = "%I:%M%p"
-                        else:
-                            time_format = "%I:%M"
+                        time_format = "%I:%M%p" if tipoff_time_str.endswith(("AM", "PM")) else "%I:%M"
 
                         tipoff_time = datetime.strptime(tipoff_time_str, time_format) if tipoff_time_str else None
 
