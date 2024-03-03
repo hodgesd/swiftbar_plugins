@@ -1,96 +1,91 @@
 #!/Users/hodgesd/PycharmProjects/swiftbar_plugins/.venv/bin/python3.12
-
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional
 
 import feedparser
 import requests
 from bs4 import BeautifulSoup
+from pydantic import BaseModel, HttpUrl, validator
 
-ARTICLE_RECENCY_DAYS = 30
-
-# URLs
-SCOTT_NEWS_URL = 'https://www.scott.af.mil/News/'
-DARING_FIREBALL_RSS_URL = 'https://daringfireball.net/feeds/articles'
-APPLE_NEWSROOM_RSS_URL = 'https://www.apple.com/newsroom/rss-feed.rss'
-MICHAEL_KENNEDY_RSS_URL = 'https://mkennedy.codes/index.xml'
+ARTICLE_RECENCY_DAYS = 7
 
 
-def format_date(date_str):
-    for fmt in ('%b. %d, %Y', '%Y-%m-%dT%H:%M:%SZ', '%a, %d %b %Y %H:%M:%S %z', '%Y-%m-%dT%H:%M:%S.%fZ'):
+class Article(BaseModel):
+    title: str
+    url: HttpUrl  # Validates URLs
+    date: Optional[datetime] = None  # Allows for articles without dates
+
+    # Custom validator to format dates on assignment
+    @validator('date', pre=True, allow_reuse=True)
+    def parse_date(cls, value):
+        for fmt in ('%b. %d, %Y', '%Y-%m-%dT%H:%M:%SZ', '%a, %d %b %Y %H:%M:%S %z', '%Y-%m-%dT%H:%M:%S.%fZ'):
+            try:
+                return datetime.strptime(value, fmt)
+            except (ValueError, TypeError):
+                continue
+        return None  # Return None if no format matches
+
+
+class NewsSource(BaseModel):
+    url: HttpUrl
+    is_html: bool = False
+    date_tag: str = 'published'
+
+    def fetch_news(self) -> List[Article]:
         try:
-            return datetime.strptime(date_str, fmt).strftime('%-m/%-d/%y')
-        except ValueError:
-            continue
-    return 'Invalid date'
+            response = requests.get(self.url)
+            response.raise_for_status()
+            return self.parse_html(response.text) if self.is_html else self.parse_rss(response.content)
+        except requests.RequestException as e:
+            print(f"Error fetching source: {e}")
+            return []
 
+    def parse_html(self, html_content: str) -> List[Article]:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        articles = [Article(title=li.find('h1').find('a').text.strip(),
+                            url=li.find('h1').find('a')['href'],
+                            date=li.find('time').text.strip() if li.find('time') else None)
+                    for li in soup.select('ul.article-listing li')]
+        return [article for article in articles if self.is_recent(article.date)]
 
-def fetch_response(url):
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        return response
-    except requests.RequestException as e:
-        print(f"Error fetching source: {e}")
-        return None
+    def parse_rss(self, rss_content: bytes) -> List[Article]:
+        feed = feedparser.parse(rss_content)
+        articles = [Article(title=entry.title,
+                            url=entry.link,
+                            date=getattr(entry, self.date_tag, None))
+                    for entry in feed.entries]
+        return [article for article in articles if self.is_recent(article.date)]
 
-
-def is_recent_article(article_date_str, days=30):
-    try:
-        article_date = datetime.strptime(article_date_str, '%m/%d/%y')
-        return datetime.now() - article_date <= timedelta(days=days)
-    except ValueError:
-        return False
-
-
-def fetch_news(url, is_html=False, date_tag='published'):
-    response = fetch_response(url)
-    if not response:
-        return [{'title': 'Error fetching news', 'url': '#', 'summary': 'Error fetching response'}]
-
-    articles = []
-    if is_html:
-        soup = BeautifulSoup(response.text, 'html.parser')
-        for li in soup.select('ul.article-listing li'):
-            headline = li.find('h1').find('a')
-            time_tag = li.find('time')
-            article_date = format_date(time_tag.get_text(strip=True) if time_tag else 'No date')
-            if is_recent_article(article_date) and '[Sponsor]' not in headline.get_text():
-                articles.append({
-                    'title': headline.get_text(strip=True),
-                    'url': headline['href'],
-                    'date': article_date
-                })
-    else:
-        feed = feedparser.parse(response.content)
-        for entry in feed.entries:
-            article_date = format_date(getattr(entry, date_tag, 'No date'))
-            if is_recent_article(article_date) and '[Sponsor]' not in entry.title:
-                articles.append({
-                    'title': entry.title,
-                    'url': entry.link,
-                    'date': article_date
-                })
-
-    return articles
+    def is_recent(self, article_date: Optional[datetime]) -> bool:
+        if article_date is None:
+            return False
+        # Ensure datetime.now() is offset-aware by using timezone.utc
+        current_time = datetime.now(timezone.utc)
+        # Ensure article_date is also offset-aware
+        # If article_date is already offset-aware, this will work as expected
+        # If it's offset-naive, you might need to adjust based on your data source
+        # For example, if you know the timezone or if it's always in UTC
+        article_date = article_date.replace(tzinfo=timezone.utc) if article_date.tzinfo is None else article_date
+        return current_time - article_date <= timedelta(days=ARTICLE_RECENCY_DAYS)
 
 
 def main():
-    scott_articles = fetch_news(SCOTT_NEWS_URL, is_html=True)
-    daring_articles = fetch_news(DARING_FIREBALL_RSS_URL)
-    apple_articles = fetch_news(APPLE_NEWSROOM_RSS_URL, date_tag='updated')
-    michael_kennedy_articles = fetch_news(MICHAEL_KENNEDY_RSS_URL)
+    sources = [
+        NewsSource(url='https://www.scott.af.mil/News/', is_html=True),
+        NewsSource(url='https://daringfireball.net/feeds/articles'),
+        NewsSource(url='https://www.apple.com/newsroom/rss-feed.rss', date_tag='updated'),
+        NewsSource(url='https://mkennedy.codes/index.xml'),
+    ]
 
     print('􀤦')
     print("---")
-    for name, articles, url in [
-        ("Scott News", scott_articles, SCOTT_NEWS_URL),
-        ("Daring Fireball", daring_articles, DARING_FIREBALL_RSS_URL),
-        ("Apple Newsroom", apple_articles, APPLE_NEWSROOM_RSS_URL),
-        ("Michael Kennedy", michael_kennedy_articles, MICHAEL_KENNEDY_RSS_URL)
-    ]:
-        print(f"{name} | href={url}")
+    source_names = ["Scott News", "Daring Fireball", "Apple Newsroom", "Michael Kennedy"]
+    for name, source in zip(source_names, sources):
+        articles = source.fetch_news()
+        print(f"{name} | href={source.url}")
         for article in articles:
-            print(f"--[{article['date']}] {article['title']} | href={article['url']}")
+            formatted_date = article.date.strftime('%-m/%-d/%y') if article.date else 'No date'
+            print(f"--[{formatted_date}] {article.title} | href={article.url}")
 
 
 if __name__ == "__main__":
