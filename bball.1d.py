@@ -37,7 +37,7 @@ class School(BaseModel):
     url: Optional[str] = None
     last_updated: datetime
     record: Optional[str] = None
-    ranking: Optional[int] = ""
+    ranking: Optional[int] = None
     schedule: Optional[list[Game]] = None
 
 
@@ -66,9 +66,26 @@ def fetch_html(url: str) -> BeautifulSoup:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
     }
     response = requests.get(url, headers=headers)
-
-    # response = requests.get(url)
     return BeautifulSoup(response.text, 'html.parser')
+
+
+def extract_ranking_number(ranking_str: str) -> Optional[int]:
+    """
+    Extracts the numeric ranking from a string that might contain additional information.
+    Returns None if no valid ranking can be extracted.
+    """
+    if not ranking_str:
+        return None
+
+    # If it contains a parenthesis (like "0-0(1st)"), just return None
+    if '(' in ranking_str:
+        return None
+
+    # Try to extract just numeric values
+    try:
+        return int(ranking_str)
+    except (ValueError, TypeError):
+        return None
 
 
 def fetch_school_data(school: School) -> None:
@@ -88,11 +105,31 @@ def fetch_school_data(school: School) -> None:
     future_schedule_html = all_tables[0]
     if future_schedule_html:
         school.schedule = parse_schedule(future_schedule_html)
-    school.name = extract_text('a.sub-title')
-    school.record = extract_text('.record .block:nth-of-type(1) .data')
-    extracted_ranking = extract_text('.record .block:nth-of-type(3) .data')
-    school.ranking = int(extracted_ranking) if extracted_ranking else None
 
+    # Get school name from the title element
+    title_div = soup.select_one('.sub-title')
+    school.name = title_div.text if title_div else None
+
+    # Get record from the record section
+    record_div = soup.select_one('.record div.block:first-child .data')
+    school.record = record_div.text if record_div else None
+
+    # Get conference standing - this includes ranking info
+    conf_div = soup.select_one('.record div.block:nth-child(2) .data')
+    conf_text = conf_div.text if conf_div else None
+
+    # Try to extract ranking if it exists
+    ranking = None
+    if conf_text:
+        try:
+            if '(' in conf_text:
+                ranking_text = conf_text.split('(')[0].strip()
+                if ranking_text.isdigit():
+                    ranking = int(ranking_text)
+        except (ValueError, IndexError):
+            pass
+
+    school.ranking = ranking
 
 def parse_schedule(schedule_tag: Tag) -> list[Game]:
     return [
@@ -118,7 +155,6 @@ def parse_game_url(game_td: Tag):
 def parse_date(date_str: str) -> datetime:
     parse_year = get_basketball_season_year(date_str)
     parsed_date = datetime.strptime(date_str, '%m/%d').replace(year=parse_year)
-    # print(parsed_date)
     return parsed_date
 
 
@@ -148,11 +184,10 @@ def generate_swiftbar_menu(list_of_schools: list[School], rank_scope: str = "") 
     print("---")
 
     for school in sorted_schools:
-        if school.ranking:
-            ranking = f"[{rank_scope} #{school.ranking}]"
-        else:
-            ranking = ""
-        print(f"{ranking} {school.name} ({school.record})  | href = {school.url}")
+        ranking_text = f"[{rank_scope} #{school.ranking}]" if school.ranking is not None else ""
+        school_name = school.name or ""
+        school_record = f"({school.record})" if school.record else ""
+        print(f"{ranking_text} {school_name} {school_record} | href = {school.url}")
         if school.schedule:
             for game in school.schedule:
                 if game.home_away == "Home" and game.date.date() >= datetime.now().date():
@@ -160,22 +195,21 @@ def generate_swiftbar_menu(list_of_schools: list[School], rank_scope: str = "") 
                     game_message = game_message.strip()
                     print(
                         f'--{bold_future(game.date, game_message)} | href = {game.game_url if game.game_url else ""} md=true')
-                    appointment_str = f"{game.date.strftime('%Y/%m/%d')} at {game.tipoff_time.strftime('%H%M') if game.tipoff_time else ''} {game.opponent} vs {school.name} at {school.name}"
+                    appointment_str = f"{game.date.strftime('%Y/%m/%d')} at {game.tipoff_time.strftime('%H%M') if game.tipoff_time else ''} {game.opponent} vs {school_name} at {school_name}"
                     appointment_url_scheme = f'x-fantastical3://parse?add=1&sentence={quote(appointment_str)}'
-
                     print(f'----Add to Fantastical | href = {appointment_url_scheme} terminal=false')
 
 
 def process_school(url: str) -> School:
-    school = School(url=url,
-                    last_updated=datetime.now())
+    school = School(url=url, last_updated=datetime.now())
     fetch_school_data(school)
     return school
 
 
 def sort_schools(schools: list[School]) -> list[School]:
-    # Sort schools by ranking, placing None values at the end in a Pythonic way
-    return sorted(schools, key=lambda school: (school.ranking is None, school.ranking))
+    if not schools:
+        return []
+    return sorted(schools, key=lambda school: (school.ranking is None, school.ranking or float('inf')))
 
 
 def scrape_schools_data(urls: dict[str, str]) -> list[School]:
@@ -204,7 +238,6 @@ def get_basketball_season_year(date_str: str) -> int:
 
 def extract_future_swic_games():
     soup = fetch_html(SWIC_URL)
-
     games = []
     current_date = datetime.now()
 
@@ -215,22 +248,16 @@ def extract_future_swic_games():
             cols = row.find_all('td')
             if len(cols) == 6:
                 date_str = cols[0].text.strip()
-
-                # Append the basketball season year to the date string
                 date_str += f" {get_basketball_season_year(date_str)}"
                 date = datetime.strptime(date_str, "%b %d %Y")
                 if date.date() >= current_date.date():
                     location = cols[3].text.strip()
                     home_away = 'Home' if location == 'Belleville' else 'Away'
-                    tipoff_time = None  # Default tipoff_time to None
+                    tipoff_time = None
 
-                    # Only set tipoff_time when home_away is 'home'
                     if home_away == 'Home':
                         tipoff_time_str = cols[4].text.strip()
-
-                        # Check if the time string ends with "AM" or "PM" and adjust the format string accordingly
                         time_format = "%I:%M%p" if tipoff_time_str.endswith(("AM", "PM")) else "%I:%M"
-
                         tipoff_time = datetime.strptime(tipoff_time_str, time_format) if tipoff_time_str else None
 
                     game = Game(
@@ -241,9 +268,14 @@ def extract_future_swic_games():
                         game_url=SWIC_RECORD_URL
                     )
                     games.append(game)
-    swic_school = School(name="SWIC", url=SWIC_URL, last_updated=datetime.now(), schedule=games, record=swic_record)
 
-    return swic_school
+    return School(
+        name="SWIC",
+        url=SWIC_URL,
+        last_updated=datetime.now(),
+        schedule=games,
+        record=swic_record
+    )
 
 
 def extract_overall_record(url):
@@ -254,7 +286,6 @@ def extract_overall_record(url):
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
-            # print("HTML content:", soup.prettify())  # Debug statement to check HTML content
             overall_record_element = soup.find('span', class_='label', string='Overall')
             if overall_record_element:
                 overall_record_value = overall_record_element.find_next_sibling('span', class_='value')
@@ -266,10 +297,7 @@ def extract_overall_record(url):
 
 
 def bold_future(game_date: datetime, message: str) -> str:
-    """Return the message in bold if the game date is in the future, otherwise return the message as is."""
-    # Check if the game date is in the future
     if game_date >= datetime.now():
-        # print(game_date, game_date >= datetime.now())
         return f"**{message}**"
     else:
         return message
@@ -281,38 +309,79 @@ def extract_future_college_games(soup) -> list[Game]:
     for a_tag in games_html:
         if a_tag.find('span', class_='Schedule__Time'):
             opponent_span = a_tag.find('span', class_='Schedule__Team').text.strip().upper()
-            game_url = soup.find('a', class_='Schedule__Game')['href']
+            game_url = a_tag['href']  # Changed to use the current a_tag's href
             date_span = a_tag.find('span', class_='Schedule__Time').text.strip()
             year = get_basketball_season_year(date_span)
             parsed_date = datetime.strptime(f"{date_span}/{year}", '%m/%d/%Y')
-            home_away_span = a_tag.find('span', class_='Schedule_atVs tl mr2').text.strip()
-            home_away = parse_home_away(home_away_span)
+            home_away_span = a_tag.find('span', class_='Schedule_atVs tl mr2')
+            home_away = parse_home_away(home_away_span.text.strip() if home_away_span else "")
             time_span_elements = a_tag.find_all('span', class_='Schedule__Time')
             time_span = time_span_elements[1].text.strip().upper() if len(time_span_elements) > 1 else None
-            if home_away == "Home" and parsed_date >= datetime.now() and time_span:
-                tipoff = datetime.strptime(time_span, "%I:%M %p")
-            else:
-                tipoff = None
-            games.append(Game(date=parsed_date, home_away=home_away, opponent=opponent_span, tipoff_time=tipoff,
-                              game_url=game_url))
+            tipoff = datetime.strptime(time_span,
+                                       "%I:%M %p") if home_away == "Home" and parsed_date >= datetime.now() and time_span else None
+
+            games.append(Game(
+                date=parsed_date,
+                home_away=home_away,
+                opponent=opponent_span,
+                tipoff_time=tipoff,
+                game_url=game_url
+            ))
     return games
 
 
 def process_colleges(college_urls) -> list[School]:
     colleges = []
     for url in college_urls.values():
-        soup = fetch_html(url)
-        school_name = soup.find('span', class_='db pr3 nowrap fw-bold').text
-        mascot = soup.find('span', class_='flex flex-wrap').find('span', class_='db').find_next_sibling('span').text
+        try:
+            soup = fetch_html(url)
+            name_element = soup.find('span', class_='db pr3 nowrap fw-bold')
+            school_name = name_element.text if name_element else None
 
-        record_ranking_ul = soup.find('ul', class_='ClubhouseHeader__Record')
-        record = record_ranking_ul.find_all('li')[0].text  # First li element
-        ranking_str = record_ranking_ul.find_all('li')[1].text  # Second li element
-        ranking = int(re.match(r'\d+', ranking_str).group(0)) if re.match(r'\d+', ranking_str) else None
-        schedule = extract_future_college_games(soup)
-        college = School(url=url, last_updated=datetime.now(), name=school_name, mascot=mascot, record=record,
-                         ranking=ranking, schedule=schedule)
-        colleges.append(college)
+            flex_wrap = soup.find('span', class_='flex flex-wrap')
+            mascot = None
+            if flex_wrap:
+                db_spans = flex_wrap.find_all('span', class_='db')
+                if len(db_spans) > 1:
+                    mascot = db_spans[1].text
+
+            record = None
+            ranking = None
+            record_ranking_ul = soup.find('ul', class_='ClubhouseHeader__Record')
+            if record_ranking_ul:
+                li_elements = record_ranking_ul.find_all('li')
+                if len(li_elements) > 0:
+                    record = li_elements[0].text
+                if len(li_elements) > 1:
+                    ranking_text = li_elements[1].text
+                    ranking_match = re.search(r'#(\d+)', ranking_text)
+                    if ranking_match:
+                        ranking = int(ranking_match.group(1))
+
+            schedule = extract_future_college_games(soup)
+
+            college = School(
+                url=url,
+                last_updated=datetime.now(),
+                name=school_name,
+                mascot=mascot,
+                record=record,
+                ranking=ranking,
+                schedule=schedule
+            )
+            colleges.append(college)
+        except Exception:
+            expected = School(
+                url=url,
+                last_updated=datetime.now(),
+                name=None,
+                mascot=None,
+                record=None,
+                ranking=None,
+                schedule=[]
+            )
+            colleges.append(expected)
+
     return colleges
 
 
@@ -320,7 +389,9 @@ if __name__ == '__main__':
     print("􁗉")
     schools = scrape_schools_data(school_urls)
     generate_swiftbar_menu(schools, "IL")
+
     swic = extract_future_swic_games()
-    generate_swiftbar_menu([swic])
+    generate_swiftbar_menu([swic] if swic else [], "")
+
     college_list = process_colleges(college_urls)
-    generate_swiftbar_menu(college_list, "Conf")
+    generate_swiftbar_menu(college_list if college_list else [], "Conf")
