@@ -7,12 +7,13 @@
 # <xbar.desc>Bnd.com headlines with enhanced timeout handling and debugging.</xbar.desc>
 # <xbar.dependencies>python,requests,bs4</xbar.dependencies>
 
-import requests
-from requests.adapters import HTTPAdapter, Retry
-from bs4 import BeautifulSoup
 import re
-from datetime import datetime
 import time
+from datetime import datetime
+
+import requests
+from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter, Retry
 
 print("BND")
 print("---")
@@ -65,6 +66,7 @@ def get_headlines():
         articles = []
         seen_links = set()  # To track unique articles
 
+        # First, get articles from the grid section
         content_area = soup.find('section', class_='grid')
         if content_area:
             for article in content_area.find_all('article', recursive=True):
@@ -94,6 +96,32 @@ def get_headlines():
                             'category': category
                         })
 
+        # Then, get articles from the Latest section
+        latest_section = soup.find('div', attrs={'data-tb-region': 'latest'})
+        if latest_section:
+            for article in latest_section.find_all('div', class_='package'):
+                headline_elem = article.find('h3')
+                if headline_elem and headline_elem.find('a'):
+                    link = headline_elem.find('a').get('href', '')
+                    if not link.startswith('http'):
+                        link = f"https://www.bnd.com{link}"
+
+                    # Skip duplicates
+                    if link in seen_links:
+                        continue
+                    seen_links.add(link)
+
+                    headline = clean_text(headline_elem.get_text())
+
+                    # Latest news items might not have a category, but we can label them
+                    category = 'Latest News'
+
+                    articles.append({
+                        'headline': headline,
+                        'link': link,
+                        'category': category
+                    })
+
         return articles
 
     except requests.Timeout:
@@ -106,6 +134,21 @@ def get_headlines():
         print(f"An unexpected error occurred: {str(e)} | color=red")
         return []
 
+def category_abbreviation(category):
+    """Convert long category names to abbreviated versions"""
+    abbreviations = {
+        'Opinion Columns & Blogs': '[Op Ed]',
+        'High School Football': '[HS Football]',
+        'Crime': '[Crime]',
+        'Metro-East News': '[Metro]',
+        'Business': '[Biz]',
+        'Food & Drink': '[Food]',
+        'St. Louis Cardinals': '[Cards]',
+        'Belleville': '[BLV]',
+        'Latest News': '[Latest]'
+    }
+    return abbreviations.get(category, f'[{category}]')
+
 def main():
     articles = get_headlines()
 
@@ -116,18 +159,25 @@ def main():
         return
 
     for article in articles:
-        # Add category if available
-        display_headline = article['headline']
-        if article['category']:
-            display_headline = f"{article['category']}: {display_headline}"
+        # Store original headline
+        original_headline = article['headline']
 
-        # Truncate for display with full headline as tooltip
-        if len(display_headline) > 60:
-            tooltip_text = display_headline
-            display_headline = f"{display_headline[:57]}..."
-            print(f"{display_headline} | href={article['link']} tooltip={tooltip_text}")
+        # Create display version with abbreviated category
+        display_headline = original_headline
+        if article['category']:
+            display_headline = f"{category_abbreviation(article['category'])} {original_headline}"
+
+        # Create tooltip with full category if available
+        tooltip_text = original_headline
+        if article['category']:
+            tooltip_text = f"{article['category']}: {original_headline}"
+
+        # Truncate display headline if needed
+        if len(display_headline) > 75:
+            display_headline = f"{display_headline[:72]}..."
+            print(f'{display_headline} | href={article["link"]} tooltip="{tooltip_text}"')
         else:
-            print(f"{display_headline} | href={article['link']}")
+            print(f'{display_headline} | href={article["link"]} tooltip="{tooltip_text}"')
 
     print("---")
     print(f"Last Updated: {datetime.now().strftime('%I:%M %p')} | color=gray")
