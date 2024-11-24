@@ -7,24 +7,51 @@
 # <xbar.desc>Bnd.com headlines with enhanced timeout handling and debugging.</xbar.desc>
 # <xbar.dependencies>python,requests,bs4</xbar.dependencies>
 
+from __future__ import annotations
+
 import re
 import time
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional, Set
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from requests.adapters import HTTPAdapter, Retry
 
-print("BND")
-print("---")
 
-def clean_text(text):
-    """Clean up text by removing extra whitespace and newlines"""
-    return re.sub(r'\s+', ' ', text).strip()
+@dataclass
+class Article:
+    headline: str
+    link: str
+    category: str = ''
 
-def get_headlines():
-    try:
-        # Headers to mimic a browser
+    def with_full_link(self) -> Article:
+        """Ensure article has full URL"""
+        if not self.link.startswith('http'):
+            self.link = f"https://www.bnd.com{self.link}"
+        return self
+
+CATEGORY_ABBREVIATIONS = {
+    'Opinion Columns & Blogs': '[Op Ed]',
+    'High School Football': '[HS Football]',
+    'Crime': '[Crime]',
+    'Metro-East News': '[Metro]',
+    'Business': '[Biz]',
+    'Food & Drink': '[Food]',
+    'St. Louis Cardinals': '[Cards]',
+    'Belleville': '[BLV]',
+    'Latest News': '[Latest]'
+}
+
+class BNDScraper:
+    def __init__(self):
+        self.session = self._setup_session()
+        self.seen_links: Set[str] = set()
+
+    @staticmethod
+    def _setup_session() -> requests.Session:
+        """Setup requests session with retry logic and headers"""
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -41,9 +68,9 @@ def get_headlines():
             'Sec-Fetch-Site': 'cross-site'
         }
 
-        # Enable retries and longer timeouts
         session = requests.Session()
         session.headers.update(headers)
+
         retry_strategy = Retry(
             total=5,
             backoff_factor=1,
@@ -54,103 +81,98 @@ def get_headlines():
         session.mount('https://', adapter)
         session.mount('http://', adapter)
 
-        # Add a small delay before request
-        time.sleep(1)
+        return session
 
-        # Fetch webpage
-        response = session.get("https://www.bnd.com", timeout=20, verify=True)
-        response.raise_for_status()
+    def _normalize_link(self, link: str) -> str:
+        """Normalize link by removing fragments and ensuring full URL"""
+        # Remove fragment identifier (everything after #)
+        base_link = link.split('#')[0]
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+        # Ensure full URL
+        if not base_link.startswith('http'):
+            base_link = f"https://www.bnd.com{base_link}"
 
-        articles = []
-        seen_links = set()  # To track unique articles
+        return base_link
 
-        # First, get articles from the grid section
-        content_area = soup.find('section', class_='grid')
-        if content_area:
-            for article in content_area.find_all('article', recursive=True):
-                if not article.find_parent(class_='partner-digest-group'):
-                    headline_elem = article.find('h3')
-                    if headline_elem and headline_elem.find('a'):
-                        link = headline_elem.find('a').get('href', '')
-                        if not link.startswith('http'):
-                            link = f"https://www.bnd.com{link}"
+    def _extract_article_from_element(self, element: Tag, category: str = '') -> Optional[Article]:
+        """Extract article information from HTML element"""
+        headline_elem = element.find('h3')
+        if not headline_elem or not (link_elem := headline_elem.find('a')):
+            return None
 
-                        # Skip duplicates
-                        if link in seen_links:
-                            continue
-                        seen_links.add(link)
+        link = link_elem.get('href', '')
+        normalized_link = self._normalize_link(link)
 
-                        headline = clean_text(headline_elem.get_text())
+        if not link or normalized_link in self.seen_links:
+            return None
 
-                        # Get category if available
-                        category = ''
-                        kicker = article.find(class_='kicker')
-                        if kicker:
-                            category = clean_text(kicker.get_text())
+        self.seen_links.add(normalized_link)
 
-                        articles.append({
-                            'headline': headline,
-                            'link': link,
-                            'category': category
-                        })
+        if not category:
+            kicker = element.find(class_='kicker')
+            category = self._clean_text(kicker.text) if kicker else ''
 
-        # Then, get articles from the Latest section
-        latest_section = soup.find('div', attrs={'data-tb-region': 'latest'})
-        if latest_section:
-            for article in latest_section.find_all('div', class_='package'):
-                headline_elem = article.find('h3')
-                if headline_elem and headline_elem.find('a'):
-                    link = headline_elem.find('a').get('href', '')
-                    if not link.startswith('http'):
-                        link = f"https://www.bnd.com{link}"
+        return Article(
+            headline=self._clean_text(headline_elem.text),
+            link=link,  # Keep original link for display
+            category=category
+        ).with_full_link()
+    @staticmethod
+    def _clean_text(text: str) -> str:
+        """Clean whitespace and newlines from text"""
+        return re.sub(r'\s+', ' ', text).strip()
 
-                    # Skip duplicates
-                    if link in seen_links:
-                        continue
-                    seen_links.add(link)
+    def get_headlines(self) -> list[Article]:
+        """Fetch and parse headlines from BND website"""
+        try:
+            time.sleep(1)  # Be nice to the server
+            response = self.session.get("https://www.bnd.com", timeout=20, verify=True)
+            response.raise_for_status()
 
-                    headline = clean_text(headline_elem.get_text())
+            soup = BeautifulSoup(response.text, 'html.parser')
+            articles = []
 
-                    # Latest news items might not have a category, but we can label them
-                    category = 'Latest News'
+            # Get main grid articles
+            if content_area := soup.find('section', class_='grid'):
+                for article_elem in content_area.find_all('article', recursive=True):
+                    if not article_elem.find_parent(class_='partner-digest-group'):
+                        if article := self._extract_article_from_element(article_elem):
+                            articles.append(article)
 
-                    articles.append({
-                        'headline': headline,
-                        'link': link,
-                        'category': category
-                    })
+            # Get latest news articles
+            if latest_section := soup.find('div', attrs={'data-tb-region': 'latest'}):
+                for article_elem in latest_section.find_all('div', class_='package'):
+                    if article := self._extract_article_from_element(article_elem, category='Latest News'):
+                        articles.append(article)
 
-        return articles
+            return articles
 
-    except requests.Timeout:
-        print("Timeout while fetching headlines. Retrying in 5 minutes... | color=red")
-        return []
-    except requests.RequestException as e:
-        print(f"Request error: {str(e)} | color=red")
-        return []
-    except Exception as e:
-        print(f"An unexpected error occurred: {str(e)} | color=red")
+        except requests.Timeout:
+            print("Timeout while fetching headlines. Retrying in 5 minutes... | color=red")
+        except requests.RequestException as e:
+            print(f"Request error: {str(e)} | color=red")
+        except Exception as e:
+            print(f"An unexpected error occurred: {str(e)} | color=red")
         return []
 
-def category_abbreviation(category):
-    """Convert long category names to abbreviated versions"""
-    abbreviations = {
-        'Opinion Columns & Blogs': '[Op Ed]',
-        'High School Football': '[HS Football]',
-        'Crime': '[Crime]',
-        'Metro-East News': '[Metro]',
-        'Business': '[Biz]',
-        'Food & Drink': '[Food]',
-        'St. Louis Cardinals': '[Cards]',
-        'Belleville': '[BLV]',
-        'Latest News': '[Latest]'
-    }
-    return abbreviations.get(category, f'[{category}]')
+def format_menu_item(article: Article, truncate_length: int = 75) -> str:
+    """Format article for SwiftBar menu display"""
+    display_headline = article.headline
+    if article.category:
+        abbreviated = CATEGORY_ABBREVIATIONS.get(article.category, f'[{article.category}]')
+        display_headline = f"{abbreviated} {article.headline}"
+        tooltip_text = f"{article.category}: {article.headline}"
+    else:
+        tooltip_text = article.headline
+
+    if len(display_headline) > truncate_length:
+        display_headline = f"{display_headline[:truncate_length-3]}..."
+
+    return f'{display_headline} | href={article.link} tooltip="{tooltip_text}"'
 
 def main():
-    articles = get_headlines()
+    scraper = BNDScraper()
+    articles = scraper.get_headlines()
 
     if not articles:
         print("No headlines available. Please check the website manually. | color=red")
@@ -158,26 +180,11 @@ def main():
         print("Open BND.com | href=https://www.bnd.com")
         return
 
+    print("BND")
+    print("---")
+
     for article in articles:
-        # Store original headline
-        original_headline = article['headline']
-
-        # Create display version with abbreviated category
-        display_headline = original_headline
-        if article['category']:
-            display_headline = f"{category_abbreviation(article['category'])} {original_headline}"
-
-        # Create tooltip with full category if available
-        tooltip_text = original_headline
-        if article['category']:
-            tooltip_text = f"{article['category']}: {original_headline}"
-
-        # Truncate display headline if needed
-        if len(display_headline) > 75:
-            display_headline = f"{display_headline[:72]}..."
-            print(f'{display_headline} | href={article["link"]} tooltip="{tooltip_text}"')
-        else:
-            print(f'{display_headline} | href={article["link"]} tooltip="{tooltip_text}"')
+        print(format_menu_item(article))
 
     print("---")
     print(f"Last Updated: {datetime.now().strftime('%I:%M %p')} | color=gray")
