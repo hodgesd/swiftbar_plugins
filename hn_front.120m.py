@@ -1,4 +1,4 @@
-#!/usr/bin/env -S PATH="${PATH}:/usr/local/bin" python3
+#!/Users/hodgesd/PycharmProjects/swiftbar_plugins/.venv/bin/python3.12
 #!unset TERM
 
 # <bitbar.title>Hacker News Headlines - Lite</bitbar.title>
@@ -16,28 +16,32 @@
 # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 
-import sys
-from sys import exit, stdout
+from sys import exit
 
 from requests import exceptions, get
 
-print("HN")
-print("---")
-print("Hacker News | href=https://news.ycombinator.com/")
-try:
-    content = get("https://hacker-news.firebaseio.com/v0/topstories.json?print=pretty")
-except exceptions.RequestException:
+
+def main():
+    print("HN")
     print("---")
-    print("Internet Connection Not available")
-    print("Manually refresh | refresh = true")
-    exit(1)
-ids = content.json()
-story_base = "https://hacker-news.firebaseio.com/v0/item/"
-hn_link = "https://news.ycombinator.com/item?id="
-print("---")
-for id in ids[:10]:
-    story = get(story_base + str(id) + ".json")
-    story_json = story.json()
-    print(
-        story_json["title"] + "| href = https://news.ycombinator.com/item?id=" + str(id)
-    )
+    print("Hacker News | href=https://news.ycombinator.com/")
+    try:
+        content = get("https://hacker-news.firebaseio.com/v0/topstories.json?print=pretty")
+    except exceptions.RequestException:
+        print("---")
+        print("Internet Connection Not available")
+        print("Manually refresh | refresh = true")
+        exit(1)
+    ids = content.json()
+    story_base = "https://hacker-news.firebaseio.com/v0/item/"
+    hn_link = "https://news.ycombinator.com/item?id="
+    print("---")
+    for id in ids[:10]:
+        story = get(story_base + str(id) + ".json")
+        story_json = story.json()
+        print(
+            story_json["title"] + "| href = https://news.ycombinator.com/item?id=" + str(id)
+        )
+
+if __name__ == "__main__":
+    main()
