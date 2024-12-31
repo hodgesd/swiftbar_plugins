@@ -1,11 +1,18 @@
+#!/Users/hodgesd/PycharmProjects/swiftbar_plugins/.venv/bin/python3.12
+
+# <xbar.title>St. Louis Today Headlines</xbar.title>
+# <xbar.version>v1.0</xbar.version>
+# <xbar.author>Derrick Hodges</xbar.author>
+# <xbar.author.github>YourGitHub</xbar.github>
+# <xbar.desc>Scrapes headlines from STLToday.com and displays them in SwiftBar.</xbar.desc>
+# <xbar.dependencies>python,requests,bs4</xbar.dependencies>
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Set
-
 import requests
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter, Retry
-
 
 @dataclass
 class Article:
@@ -18,7 +25,6 @@ class Article:
         if not self.link.startswith('http'):
             self.link = f"https://www.stltoday.com{self.link}"
         return self
-
 
 class STLScraper:
     def __init__(self):
@@ -45,52 +51,47 @@ class STLScraper:
 
         return session
 
-    def _extract_article(self, element: Tag, category: str = '') -> Optional[Article]:
-        # Extract headline
-        headline_elem = element.select_one('.card-headline a')
-        if not headline_elem:
+    def _extract_article(self, article_elem, category):
+        try:
+            title_elem = article_elem.select_one('.card-headline a, .tnt-headline a, .tnt-asset-link')
+            headline = title_elem.get('aria-label') if title_elem and title_elem.has_attr('aria-label') else title_elem.get_text(strip=True)
+            link = title_elem['href'] if title_elem else ''
+            summary_elem = article_elem.select_one('div.card-lead p')
+            summary = summary_elem.get_text(strip=True) if summary_elem else "No summary"
+
+            article = Article(
+                headline=headline,
+                link=link,
+                summary=summary,
+                category=category
+            ).with_full_link()
+
+            # print(f"Article found: {headline} | Category: {category} | Link: {article.link} | color=green")
+
+            return article
+        except Exception as e:
+            print(f"Error extracting article: {e} | color=red")
             return None
-
-        headline = headline_elem.text.strip()
-        link = headline_elem['href']
-
-        # Extract summary (tooltip)
-        summary_elem = element.select_one('.card-lead p')
-        summary = summary_elem.text.strip() if summary_elem else ''
-
-        # Mark as seen to avoid duplicates
-        if link in self.seen_links:
-            return None
-        self.seen_links.add(link)
-
-        return Article(
-            headline=headline,
-            link=link,
-            summary=summary,
-            category=category
-        ).with_full_link()
 
     def get_headlines(self) -> list[Article]:
         try:
             response = self.session.get("https://www.stltoday.com", timeout=20)
             response.raise_for_status()
-
             soup = BeautifulSoup(response.text, 'html.parser')
             articles = []
 
-            # Iterate over each block to extract category and articles
-            blocks = soup.select('div.block-title-inner')
+            blocks = soup.select('section.block')
             for block in blocks:
-                # Extract category name
-                category_elem = block.select_one('h3')
-                category = category_elem.get_text(" ", strip=True) if category_elem else 'Uncategorized'
+                category_elem = block.select_one('div.block-title-inner h3')
+                category = category_elem.get_text(strip=True) if category_elem else 'Uncategorized'
+                # print(f"Found category: {category} | color=blue")
 
-                # Find the parent section containing articles
-                section = block.find_parent('section', class_='block')
-                if section:
-                    for article_elem in section.select('article.tnt-asset-type-article'):
-                        if article := self._extract_article(article_elem, category):
-                            articles.append(article)
+                card_grid = block.select('article')
+                # print(f"Category: {category} | Articles found: {len(card_grid)} | color=yellow")
+
+                for article_elem in card_grid:
+                    if article := self._extract_article(article_elem, category):
+                        articles.append(article)
 
             return articles
         except requests.RequestException as e:
@@ -104,10 +105,12 @@ def format_menu_item(article: Article, truncate_length: int = 75) -> str:
 
     return f'{display_headline} | href={article.link} tooltip="{article.summary}"'
 
-
 def main():
     scraper = STLScraper()
     articles = scraper.get_headlines()
+
+    print("STL")
+    print("---")
 
     if not articles:
         print("No headlines found. | color=red")
@@ -115,17 +118,13 @@ def main():
         print("Visit STLToday | href=https://www.stltoday.com")
         return
 
-    print("STL Today Headlines")
-    print("---")
-
-    for article in articles[:10]:
+    for article in articles[:90]:  # Display top 10 articles
         print(format_menu_item(article))
 
     print("---")
     print(f"Last Updated: {datetime.now().strftime('%I:%M %p')} | color=gray")
     print("Visit STLToday | href=https://www.stltoday.com")
     print("Refresh | refresh=true")
-
 
 if __name__ == "__main__":
     main()
