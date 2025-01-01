@@ -9,10 +9,32 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Set
+from typing import Set
+
 import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter, Retry
+
+EXCLUDED_CATEGORIES = {
+        "LatestVideo",
+        "Partner",
+        "Curated Commerce",
+        "Print Ads",
+        "Listen NowPodcasts",
+        "InteractWith Us",
+        "Local Businesses",
+        "Nation & World",
+        "Winning STL",
+    }
+
+CATEGORY_ABBREVIATIONS = {
+    'Opinion': 'OpEd',
+    'Business': 'Biz',
+    'Life & Entertainment': 'Life',
+    'RecommendedFor You': 'Picks',
+    'Uncategorized': 'Top',
+    'TheLatest': 'New',
+    }
 
 @dataclass
 class Article:
@@ -51,13 +73,18 @@ class STLScraper:
 
         return session
 
+
     def _extract_article(self, article_elem, category):
         try:
             title_elem = article_elem.select_one('.card-headline a, .tnt-headline a, .tnt-asset-link')
-            headline = title_elem.get('aria-label') if title_elem and title_elem.has_attr('aria-label') else title_elem.get_text(strip=True)
+            headline = title_elem.get('aria-label') if title_elem and title_elem.has_attr(
+                'aria-label') else title_elem.get_text(strip=True)
             link = title_elem['href'] if title_elem else ''
             summary_elem = article_elem.select_one('div.card-lead p')
             summary = summary_elem.get_text(strip=True) if summary_elem else "No summary"
+
+            # Apply category abbreviation if available
+            category = CATEGORY_ABBREVIATIONS.get(category, category)
 
             article = Article(
                 headline=headline,
@@ -66,12 +93,11 @@ class STLScraper:
                 category=category
             ).with_full_link()
 
-            # print(f"Article found: {headline} | Category: {category} | Link: {article.link} | color=green")
-
             return article
         except Exception as e:
             print(f"Error extracting article: {e} | color=red")
             return None
+
 
     def get_headlines(self) -> list[Article]:
         try:
@@ -84,11 +110,11 @@ class STLScraper:
             for block in blocks:
                 category_elem = block.select_one('div.block-title-inner h3')
                 category = category_elem.get_text(strip=True) if category_elem else 'Uncategorized'
-                # print(f"Found category: {category} | color=blue")
+
+                if category in EXCLUDED_CATEGORIES:
+                    continue  # Skip excluded categories
 
                 card_grid = block.select('article')
-                # print(f"Category: {category} | Articles found: {len(card_grid)} | color=yellow")
-
                 for article_elem in card_grid:
                     if article := self._extract_article(article_elem, category):
                         articles.append(article)
@@ -97,6 +123,7 @@ class STLScraper:
         except requests.RequestException as e:
             print(f"Error fetching STLToday: {e} | color=red")
             return []
+
 
 def format_menu_item(article: Article, truncate_length: int = 75) -> str:
     display_headline = f"[{article.category}] {article.headline}"
