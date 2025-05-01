@@ -7,6 +7,8 @@
 # <swiftbar.dependencies>python, beautifulsoup4, requests</swiftbar.dependencies>
 
 import asyncio
+import datetime
+
 import aiohttp
 import requests
 from aiohttp import ClientTimeout
@@ -20,6 +22,7 @@ HN_URL = "https://news.ycombinator.com/"
 LOBSTERS_URL = "https://lobste.rs"
 REQUEST_TIMEOUT = 10
 MAX_HEADLINES = 15
+TRIM_LENGTH = 80  # Character limit for headlines
 
 
 async def getDOM(url):
@@ -39,6 +42,13 @@ async def fetch_and_buffer(scraper):
     return buffer.getvalue()
 
 
+def format_headline(title, url, tags=None):
+    """Format headlines with trimming and tooltips."""
+    tags_text = f"[{', '.join(tags)}] " if tags else ""
+    trimmed_title = title[:TRIM_LENGTH] + '…' if len(title) > TRIM_LENGTH else title
+    return f"--{tags_text}{trimmed_title} | href={url} tooltip=\"{title}\" length={TRIM_LENGTH} trim=true\n"
+
+
 async def fetch_techmeme(buffer=None):
     if buffer is None:
         buffer = StringIO()
@@ -53,7 +63,7 @@ async def fetch_techmeme(buffer=None):
         try:
             story_link = story.select_one('.ourh')['href']
             story_title = story.select_one('.ourh').text
-            buffer.write(f"--{story_title} | href={story_link} tooltip=\"{story_title}\"\n")
+            buffer.write(format_headline(story_title, story_link))
         except Exception:
             continue
 
@@ -71,7 +81,7 @@ async def fetch_hn(buffer=None):
         for id in ids[:MAX_HEADLINES]:
             story = await asyncio.to_thread(lambda: requests.get(story_base + str(id) + ".json").json())
             title = story.get('title', 'Untitled')
-            buffer.write(f"--{title} | href={HN_URL}item?id={id} tooltip=\"{title}\"\n")
+            buffer.write(format_headline(title, f"{HN_URL}item?id={id}"))
     except Exception as e:
         buffer.write(f"--⚠️ Error fetching HN: {e}\n")
 
@@ -94,7 +104,8 @@ async def fetch_lobsters(buffer=None):
                 continue
             title = title_elem.text
             url = title_elem['href']
-            buffer.write(f"--{title} | href={url} tooltip=\"{title}\"\n")
+            tags = [tag.text for tag in story.select(".tags > a")]
+            buffer.write(format_headline(title, url, tags))
         except Exception:
             continue
 
@@ -119,8 +130,8 @@ async def main():
 
     end = time.time()
     print("---")
+    print(f"Updated at {datetime.datetime.now().strftime('%I:%M %p')} (fetched in {round(end - start, 2)}s)")
     print("Refresh | refresh=true")
-    print(f"--Fetch Time: {round(end - start, 2)}s")
 
 
 if __name__ == "__main__":

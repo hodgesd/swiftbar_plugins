@@ -34,3 +34,6 @@ tzdata==2023.3
     # via pandas
 urllib3==2.1.0
     # via requests
+
+pydantic~=2.6.1
+aiohttp~=3.11.11
