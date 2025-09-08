@@ -395,7 +395,7 @@ async def fetch_bnd(buffer=None):
 
 async def main():
     # Menubar Symbol
-    print("􀤦*")
+    print("􀤦")
     print("---")
 
     start = time.time()
