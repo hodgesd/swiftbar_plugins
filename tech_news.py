@@ -21,7 +21,7 @@ TECHMEME_URL = "https://www.techmeme.com/"
 HN_URL = "https://news.ycombinator.com/"
 LOBSTERS_URL = "https://lobste.rs"
 REQUEST_TIMEOUT = 10
-MAX_HEADLINES = 15
+MAX_HEADLINES = 25
 TRIM_LENGTH = 80  # Character limit for headlines
 
 
@@ -46,7 +46,7 @@ def format_headline(title, url, tags=None):
     """Format headlines with trimming and tooltips."""
     tags_text = f"[{', '.join(tags)}] " if tags else ""
     trimmed_title = title[:TRIM_LENGTH] + '…' if len(title) > TRIM_LENGTH else title
-    return f"--{tags_text}{trimmed_title} | href={url} tooltip=\"{title}\" length={TRIM_LENGTH} trim=true\n"
+    return f"--{tags_text}{trimmed_title} | href={url} tooltip=\"{title}\" length={200} trim=true\n"
 
 
 async def fetch_techmeme(buffer=None):

@@ -75,11 +75,12 @@ def main():
         NewsSource(url='https://daringfireball.net/feeds/articles'),
         NewsSource(url='https://www.apple.com/newsroom/rss-feed.rss', date_tag='updated'),
         NewsSource(url='https://mkennedy.codes/index.xml'),
+        NewsSource(url='https://chiefpilotsforum.com/forums/forum/5-chief-pilots-roundtable.xml/?member=166&key=14b0f53796b65a0515017f89b26c78d8')
     ]
 
     print('􀤦')
     print("---")
-    source_names = ["Scott News", "Daring Fireball", "Apple Newsroom", "Michael Kennedy"]
+    source_names = ["Scott News", "Daring Fireball", "Apple Newsroom", "Michael Kennedy", "Chief Pilots Forum"]
     for name, source in zip(source_names, sources):
         articles = source.fetch_news()
         print(f"{name} | href={source.url}")

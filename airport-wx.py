@@ -1,5 +1,4 @@
 #!/Users/hodgesd/PycharmProjects/swiftbar_plugins/.venv/bin/python3.12
-
 # <xbar.title>ICAO METAR Display with Flight Rules</xbar.title>
 # <xbar.version>v1.2</xbar.version>
 # <xbar.author>Your Name</xbar.author>
@@ -10,7 +9,6 @@
 import os
 import json
 from avwx.current.metar import Metar
-from avwx import Notams
 
 # Use SwiftBar's data path for configuration
 PLUGIN_DATA_PATH = os.getenv('SWIFTBAR_PLUGIN_DATA_PATH', '')

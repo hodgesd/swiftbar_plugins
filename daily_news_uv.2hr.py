@@ -137,11 +137,17 @@ async def fetch_and_buffer(scraper):
     return buffer.getvalue()
 
 
-def format_headline(title, url, tags=None):
+def format_headline(title, url, tags=None, summary=None):
     """Format headlines with trimming and tooltips."""
     tags_text = f"[{', '.join(tags)}] " if tags else ""
     trimmed_title = title[:TRIM_LENGTH] + '…' if len(title) > TRIM_LENGTH else title
-    return f"--{tags_text}{trimmed_title} | href={url} tooltip=\"{title}\" length={TRIM_LENGTH} trim=true\n"
+
+    # Create tooltip with title and summary if available
+    tooltip_text = title
+    if summary:
+        tooltip_text = f"{title}\n\n{summary}"
+
+    return f"--{tags_text}{trimmed_title} | href={url} tooltip=\"{tooltip_text}\" length={TRIM_LENGTH} trim=true\n"
 
 
 def format_stl_headline(article: Article, truncate_length: int = 75) -> str:
@@ -163,6 +169,10 @@ def format_bnd_headline(article: Article, truncate_length: int = 75) -> str:
     else:
         tooltip_text = article.headline
 
+    # Add summary to tooltip if available
+    if article.summary:
+        tooltip_text = f"{tooltip_text}\n\n{article.summary}"
+
     if len(display_headline) > truncate_length:
         display_headline = f"{display_headline[:truncate_length-3]}..."
 
@@ -183,7 +193,14 @@ async def fetch_techmeme(buffer=None):
         try:
             story_link = story.select_one('.ourh')['href']
             story_title = story.select_one('.ourh').text
-            buffer.write(format_headline(story_title, story_link))
+
+            # Try to extract summary/excerpt
+            summary = ''
+            excerpt_elem = story.select_one('.excerpt')
+            if excerpt_elem:
+                summary = excerpt_elem.text.strip()
+
+            buffer.write(format_headline(story_title, story_link, summary=summary))
         except Exception:
             continue
 
@@ -225,7 +242,14 @@ async def fetch_lobsters(buffer=None):
             title = title_elem.text
             url = title_elem['href']
             tags = [tag.text for tag in story.select(".tags > a")]
-            buffer.write(format_headline(title, url, tags))
+
+            # Try to extract description if available
+            summary = ''
+            desc_elem = story.select_one(".description")
+            if desc_elem:
+                summary = desc_elem.text.strip()
+
+            buffer.write(format_headline(title, url, tags, summary))
         except Exception:
             continue
 
@@ -350,9 +374,20 @@ async def fetch_bnd(buffer=None):
                     kicker = element.find(class_='kicker')
                     category = clean_text(kicker.text) if kicker else ''
 
+                # Extract summary/description if available
+                summary = ''
+                summary_elem = element.find('p', class_='blurb')
+                if not summary_elem:
+                    summary_elem = element.find('div', class_='summary')
+                if not summary_elem:
+                    summary_elem = element.find('p')
+                if summary_elem:
+                    summary = clean_text(summary_elem.text)
+
                 return Article(
                     headline=clean_text(headline_elem.text),
                     link=link,
+                    summary=summary,
                     category=category
                 ).with_full_link(BND_URL)
 
