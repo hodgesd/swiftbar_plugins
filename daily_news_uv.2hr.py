@@ -189,8 +189,11 @@ async def get_hn_comment_summary(story_id: str, cache: dict) -> tuple[str, bool]
 
         if process.returncode == 0:
             summary = stdout.decode('utf-8').strip()
-            # Clean up any extra whitespace and newlines for tooltip display
-            summary = re.sub(r'\s+', ' ', summary)
+            # Normalize whitespace within paragraphs but preserve paragraph breaks
+            # Replace multiple spaces/tabs with single space
+            summary = re.sub(r'[ \t]+', ' ', summary)
+            # Normalize multiple newlines to double newlines (paragraph breaks)
+            summary = re.sub(r'\n{3,}', '\n\n', summary)
             return summary, False
         else:
             return '', False
@@ -214,7 +217,7 @@ def format_headline(title, url, tags=None, summary=None):
     # Use summary as tooltip if available, otherwise use title
     tooltip_text = summary if summary else title
 
-    return f"--{full_title} | href={url} tooltip=\"{tooltip_text}\" trim=false\n"
+    return f"--{full_title} | href={url} tooltip=\"{tooltip_text}\" length=0 trim=false\n"
 
 
 def format_stl_headline(article: Article, truncate_length: int = 75) -> str:
