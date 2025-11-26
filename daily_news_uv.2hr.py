@@ -146,6 +146,8 @@ def format_headline(title, url, tags=None, summary=None):
 
     # Use summary as tooltip if available, otherwise use title
     tooltip_text = summary if summary else title
+    # Escape quotes and backslashes for SwiftBar tooltip format
+    tooltip_text = tooltip_text.replace('\\', '\\\\').replace('"', '\\"')
 
     return f"--{full_title} | href={url} tooltip=\"{tooltip_text}\" trim=false\n"
 
@@ -155,8 +157,10 @@ def format_stl_headline(article: Article, truncate_length: int = 75) -> str:
     display_headline = f"[{article.category}] {article.headline}"
     if len(display_headline) > truncate_length:
         display_headline = f"{display_headline[:truncate_length-3]}..."
-    
-    return f"--{display_headline} | href={article.link} tooltip=\"{article.summary}\"\n"
+
+    # Escape quotes in tooltip
+    tooltip_text = article.summary.replace('\\', '\\\\').replace('"', '\\"')
+    return f"--{display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
 
 
 def format_bnd_headline(article: Article, truncate_length: int = 75) -> str:
@@ -176,6 +180,8 @@ def format_bnd_headline(article: Article, truncate_length: int = 75) -> str:
     if len(display_headline) > truncate_length:
         display_headline = f"{display_headline[:truncate_length-3]}..."
 
+    # Escape quotes in tooltip
+    tooltip_text = tooltip_text.replace('\\', '\\\\').replace('"', '\\"')
     return f'--{display_headline} | href={article.link} tooltip="{tooltip_text}"\n'
 
 
