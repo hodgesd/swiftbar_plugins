@@ -18,8 +18,11 @@
 import asyncio
 import datetime
 import re
+import json
+import subprocess
 from dataclasses import dataclass
 from typing import Set, Optional
+from pathlib import Path
 
 import aiohttp
 import requests
@@ -38,6 +41,11 @@ BND_URL = "https://www.bnd.com"
 REQUEST_TIMEOUT = 10
 MAX_HEADLINES = 15
 TRIM_LENGTH = 80  # Character limit for headlines
+CACHE_DURATION_HOURS = 6  # Cache LLM summaries for 6 hours
+
+# Cache file location
+import os
+CACHE_FILE = Path(os.getenv('SWIFTBAR_PLUGIN_DATA_PATH', '/tmp')) / 'hn_summaries_cache.json'
 
 # STLToday configuration
 STL_EXCLUDED_CATEGORIES = {
@@ -129,6 +137,65 @@ def setup_sync_session() -> requests.Session:
     session.mount('http://', adapter)
 
     return session
+
+
+def load_summary_cache():
+    """Load cached HN comment summaries from disk"""
+    if not CACHE_FILE.exists():
+        return {}
+    try:
+        with open(CACHE_FILE, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_summary_cache(cache):
+    """Save HN comment summaries cache to disk"""
+    try:
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(CACHE_FILE, 'w') as f:
+            json.dump(cache, f)
+    except Exception:
+        pass
+
+
+def is_cache_valid(timestamp: float) -> bool:
+    """Check if a cached entry is still valid (less than 6 hours old)"""
+    age_hours = (time.time() - timestamp) / 3600
+    return age_hours < CACHE_DURATION_HOURS
+
+
+async def get_hn_comment_summary(story_id: str, cache: dict) -> tuple[str, bool]:
+    """
+    Use llm command to summarize HN discussion comments.
+    Returns (summary, was_cached) tuple.
+    """
+    # Check cache first
+    if story_id in cache:
+        entry = cache[story_id]
+        if is_cache_valid(entry['timestamp']):
+            return entry['summary'], True
+
+    # Not in cache or expired, fetch new summary
+    try:
+        process = await asyncio.create_subprocess_exec(
+            'llm', '-m', 'gemini/gemini-2.5-flash', '-f', f'hn:{story_id}',
+            'summarize this discussion. 2 structured paragraphs max',
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode == 0:
+            summary = stdout.decode('utf-8').strip()
+            # Clean up any extra whitespace and newlines for tooltip display
+            summary = re.sub(r'\s+', ' ', summary)
+            return summary, False
+        else:
+            return '', False
+    except Exception:
+        return '', False
 
 
 async def fetch_and_buffer(scraper):
@@ -224,13 +291,24 @@ async def fetch_hn(buffer=None):
     buffer.write(f"Hacker News | href={HN_URL}\n")
 
     try:
+        # Load cache
+        cache = load_summary_cache()
+        cache_updated = False
+
         timeout = ClientTimeout(total=REQUEST_TIMEOUT)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(algolia_url) as response:
                 response.raise_for_status()
                 data = await response.json()
 
-                for hit in data.get('hits', [])[:MAX_HEADLINES]:
+                hits = data.get('hits', [])[:MAX_HEADLINES]
+
+                # Fetch all comment summaries concurrently (with cache)
+                story_ids = [hit.get('objectID') for hit in hits]
+                summary_results = await asyncio.gather(*[get_hn_comment_summary(sid, cache) for sid in story_ids])
+
+                # Now format and write each item with its summary
+                for hit, (llm_summary, was_cached) in zip(hits, summary_results):
                     title = hit.get('title', 'Untitled')
                     story_id = hit.get('objectID')
                     points = hit.get('points', 0)
@@ -240,10 +318,25 @@ async def fetch_hn(buffer=None):
                     # Format title with metadata prefix
                     formatted_title = f"[{points}↑|{num_comments}#] {title}"
 
-                    # Tooltip shows author
-                    summary = f"by {author}"
+                    # Use LLM summary if available, otherwise fall back to author
+                    if llm_summary:
+                        summary = llm_summary
+                        # Update cache if this was a new fetch
+                        if not was_cached:
+                            cache[story_id] = {
+                                'summary': llm_summary,
+                                'timestamp': time.time()
+                            }
+                            cache_updated = True
+                    else:
+                        summary = f"by {author}"
 
                     buffer.write(format_headline(formatted_title, f"{HN_URL}item?id={story_id}", summary=summary))
+
+                # Save cache if we added new entries
+                if cache_updated:
+                    save_summary_cache(cache)
+
     except Exception as e:
         buffer.write(f"--⚠️ Error fetching HN: {e}\n")
 
