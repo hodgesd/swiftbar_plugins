@@ -147,7 +147,7 @@ def format_headline(title, url, tags=None, summary=None):
     # Use summary as tooltip if available, otherwise use title
     tooltip_text = summary if summary else title
 
-    return f"--{full_title} | href={url} tooltip=\"{tooltip_text}\"\n"
+    return f"--{full_title} | href={url} tooltip=\"{tooltip_text}\" trim=false\n"
 
 
 def format_stl_headline(article: Article, truncate_length: int = 75) -> str:
