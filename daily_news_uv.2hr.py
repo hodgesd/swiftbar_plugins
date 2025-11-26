@@ -140,15 +140,23 @@ async def fetch_and_buffer(scraper):
 def format_headline(title, url, tags=None, summary=None):
     """Format headlines with full title and summary tooltip."""
     tags_text = f"[{', '.join(tags)}] " if tags else ""
-
-    # Use full title (no trimming)
     full_title = f"{tags_text}{title}"
-
+    
     # Use summary as tooltip if available, otherwise use title
     tooltip_text = summary if summary else title
-    # Escape quotes and backslashes for SwiftBar tooltip format
-    tooltip_text = tooltip_text.replace('\\', '\\\\').replace('"', '\\"')
-
+    
+    # Escape special characters for SwiftBar:
+    # 1. Escape backslashes first (must be first to avoid double-escaping)
+    tooltip_text = tooltip_text.replace('\\', '\\\\')
+    # 2. Escape double quotes
+    tooltip_text = tooltip_text.replace('"', '\\"')
+    # 3. Escape pipe characters (they have special meaning in SwiftBar)
+    tooltip_text = tooltip_text.replace('|', '\\|')
+    
+    # Escape title too for any pipes or special chars
+    full_title = full_title.replace('|', ' ')  # Remove pipes from display title
+    full_title = full_title.replace('"', '\\"')
+    
     return f"-- {full_title} | href={url} tooltip=\"{tooltip_text}\" trim=false\n"
 
 
