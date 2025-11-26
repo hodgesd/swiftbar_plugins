@@ -138,16 +138,16 @@ async def fetch_and_buffer(scraper):
 
 
 def format_headline(title, url, tags=None, summary=None):
-    """Format headlines with trimming and tooltips."""
+    """Format headlines with full title and summary tooltip."""
     tags_text = f"[{', '.join(tags)}] " if tags else ""
-    trimmed_title = title[:TRIM_LENGTH] + '…' if len(title) > TRIM_LENGTH else title
 
-    # Create tooltip with title and summary if available
-    tooltip_text = title
-    if summary:
-        tooltip_text = f"{title}\n\n{summary}"
+    # Use full title (no trimming)
+    full_title = f"{tags_text}{title}"
 
-    return f"--{tags_text}{trimmed_title} | href={url} tooltip=\"{tooltip_text}\" length={TRIM_LENGTH} trim=true\n"
+    # Use summary as tooltip if available, otherwise use title
+    tooltip_text = summary if summary else title
+
+    return f"--{full_title} | href={url} tooltip=\"{tooltip_text}\"\n"
 
 
 def format_stl_headline(article: Article, truncate_length: int = 75) -> str:
@@ -194,11 +194,22 @@ async def fetch_techmeme(buffer=None):
             story_link = story.select_one('.ourh')['href']
             story_title = story.select_one('.ourh').text
 
-            # Try to extract summary/excerpt
+            # Extract the full excerpt that appears after the </strong> tag
             summary = ''
-            excerpt_elem = story.select_one('.excerpt')
-            if excerpt_elem:
-                summary = excerpt_elem.text.strip()
+            ii_elem = story.select_one('.ii')
+            if ii_elem:
+                # Get the HTML string to find text after </strong>
+                ii_html = str(ii_elem)
+                if '</strong>' in ii_html:
+                    # Get everything after the closing </strong> tag
+                    after_strong = ii_html.split('</strong>', 1)[1]
+                    # Parse it to extract just the text
+                    temp_soup = BeautifulSoup(after_strong, 'html.parser')
+                    excerpt_text = temp_soup.get_text(separator=' ', strip=True)
+                    # Clean up leading separators (nbsp, em dash, spaces, etc.)
+                    excerpt_text = re.sub(r'^[\s\xa0—–\-]+', '', excerpt_text).strip()
+                    if excerpt_text:
+                        summary = excerpt_text
 
             buffer.write(format_headline(story_title, story_link, summary=summary))
         except Exception:
