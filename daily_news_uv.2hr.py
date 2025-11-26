@@ -219,17 +219,28 @@ async def fetch_techmeme(buffer=None):
 async def fetch_hn(buffer=None):
     if buffer is None:
         buffer = StringIO()
-    ids_url = "https://hacker-news.firebaseio.com/v0/topstories.json?print=pretty"
+    # Use Algolia API for richer metadata in a single request
+    algolia_url = "https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=15"
     buffer.write(f"Hacker News | href={HN_URL}\n")
 
     try:
-        ids = await asyncio.to_thread(lambda: requests.get(ids_url).json())
-        story_base = "https://hacker-news.firebaseio.com/v0/item/"
+        timeout = ClientTimeout(total=REQUEST_TIMEOUT)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(algolia_url) as response:
+                response.raise_for_status()
+                data = await response.json()
 
-        for id in ids[:MAX_HEADLINES]:
-            story = await asyncio.to_thread(lambda: requests.get(story_base + str(id) + ".json").json())
-            title = story.get('title', 'Untitled')
-            buffer.write(format_headline(title, f"{HN_URL}item?id={id}"))
+                for hit in data.get('hits', [])[:MAX_HEADLINES]:
+                    title = hit.get('title', 'Untitled')
+                    story_id = hit.get('objectID')
+                    points = hit.get('points', 0)
+                    num_comments = hit.get('num_comments', 0)
+                    author = hit.get('author', 'unknown')
+
+                    # Create a summary with metadata for the tooltip
+                    summary = f"{points} points | {num_comments} comments | by {author}"
+
+                    buffer.write(format_headline(title, f"{HN_URL}item?id={story_id}", summary=summary))
     except Exception as e:
         buffer.write(f"--⚠️ Error fetching HN: {e}\n")
 
