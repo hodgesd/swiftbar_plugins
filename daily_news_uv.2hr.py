@@ -237,10 +237,13 @@ async def fetch_hn(buffer=None):
                     num_comments = hit.get('num_comments', 0)
                     author = hit.get('author', 'unknown')
 
-                    # Create a summary with metadata for the tooltip
-                    summary = f"{points} points | {num_comments} comments | by {author}"
+                    # Format title with metadata prefix
+                    formatted_title = f"[{points}↑|{num_comments}#] {title}"
 
-                    buffer.write(format_headline(title, f"{HN_URL}item?id={story_id}", summary=summary))
+                    # Tooltip shows author
+                    summary = f"by {author}"
+
+                    buffer.write(format_headline(formatted_title, f"{HN_URL}item?id={story_id}", summary=summary))
     except Exception as e:
         buffer.write(f"--⚠️ Error fetching HN: {e}\n")
 
