@@ -149,7 +149,7 @@ def format_headline(title, url, tags=None, summary=None):
     # Escape quotes and backslashes for SwiftBar tooltip format
     tooltip_text = tooltip_text.replace('\\', '\\\\').replace('"', '\\"')
 
-    return f"--{full_title} | href={url} tooltip=\"{tooltip_text}\" trim=false\n"
+    return f"-- {full_title} | href={url} tooltip=\"{tooltip_text}\" trim=false\n"
 
 
 def format_stl_headline(article: Article, truncate_length: int = 75) -> str:
@@ -160,7 +160,7 @@ def format_stl_headline(article: Article, truncate_length: int = 75) -> str:
 
     # Escape quotes in tooltip
     tooltip_text = article.summary.replace('\\', '\\\\').replace('"', '\\"')
-    return f"--{display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
+    return f"-- {display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
 
 
 def format_bnd_headline(article: Article, truncate_length: int = 75) -> str:
@@ -182,7 +182,8 @@ def format_bnd_headline(article: Article, truncate_length: int = 75) -> str:
 
     # Escape quotes in tooltip
     tooltip_text = tooltip_text.replace('\\', '\\\\').replace('"', '\\"')
-    return f'--{display_headline} | href={article.link} tooltip="{tooltip_text}"\n'
+    return (f'-- '
+            f'{display_headline} | href={article.link} tooltip="{tooltip_text}"\n')
 
 
 async def fetch_techmeme(buffer=None):
