@@ -252,15 +252,19 @@ async def fetch_hn(buffer=None):
                     num_comments = hit.get('num_comments', 0)
                     author = hit.get('author', 'unknown')
 
-                    # Format title with metadata prefix
-                    formatted_title = f"[{points}↑|{num_comments}#] {title}"
-
+                    # Format title with upvotes and comments - Option 3 format
+                    formatted_title = f"[{points}↑] {title} ({num_comments}􀌪)"
+                    
                     # Tooltip shows author
                     summary = f"by {author}"
+                    
+                    # Escape special characters
+                    tooltip_text = summary.replace('\\', '\\\\').replace('"', '\\"').replace('|', '\\|')
+                    formatted_title_escaped = formatted_title.replace('|', ' ').replace('"', '\\"')
 
-                    buffer.write(format_headline(formatted_title, f"{HN_URL}item?id={story_id}", summary=summary))
+                    buffer.write(f"-- {formatted_title_escaped} | href={HN_URL}item?id={story_id} tooltip=\"{tooltip_text}\" trim=false\n")
     except Exception as e:
-        buffer.write(f"--⚠️ Error fetching HN: {e}\n")
+        buffer.write(f"-- Error fetching HN: {e}\n")
 
 
 async def fetch_lobsters(buffer=None):
