@@ -106,7 +106,7 @@ from io import StringIO
 from requests.adapters import HTTPAdapter, Retry
 
 def format_hn_tooltip(summary: str) -> str:
-    """Format HN discussion summary with clear visual structure for single-line tooltips."""
+    """Format HN discussion summary with multiline tooltip support."""
     # Split into paragraphs
     paragraphs = [p.strip() for p in summary.split('\n\n') if p.strip()]
 
@@ -114,16 +114,16 @@ def format_hn_tooltip(summary: str) -> str:
         # Single paragraph - just clean it up
         return re.sub(r'\s+', ' ', summary).strip()
 
-    # Format each paragraph with visual separator for single-line display
+    # Format each paragraph with clear visual structure
+    # Clean up internal whitespace within each paragraph
     formatted_paras = []
-    for i, para in enumerate(paragraphs, start=1):
-        # Clean up internal whitespace
+    for para in paragraphs:
         clean_para = re.sub(r'\s+', ' ', para).strip()
-        # Add section marker
-        formatted_paras.append(f"[{i}] {clean_para}")
+        formatted_paras.append(clean_para)
 
-    # Join with strong visual separator
-    return '  ━━  '.join(formatted_paras)
+    # Join paragraphs with double newline for clear separation
+    # Note: The actual newlines will be preserved during escaping
+    return '\n\n'.join(formatted_paras)
 
 
 
@@ -370,9 +370,10 @@ async def fetch_hnt(buffer=None):
                     formatted_summary = format_hn_tooltip(summary)
                     tooltip_text = (
                         formatted_summary
-                        .replace("\\", "\\\\")
-                        .replace('"', '\\"')
-                        .replace("|", "\\|")
+                        .replace("\\", "\\\\")  # Escape backslashes first
+                        .replace("\n", "\\n")   # Convert newlines to literal \n for SwiftBar
+                        .replace('"', '\\"')    # Escape quotes
+                        .replace("|", "\\|")    # Escape pipes
                     )
                     formatted_title_escaped = formatted_title.replace("|", " ").replace(
                         '"', '\\"'
