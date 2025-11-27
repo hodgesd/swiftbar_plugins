@@ -248,26 +248,39 @@ def extract_future_swic_games():
             cols = row.find_all('td')
             if len(cols) == 6:
                 date_str = cols[0].text.strip()
+                
+                # Handle date ranges like "Oct 4-5 2024" by extracting the first date
+                if '-' in date_str and date_str[0:3].isalpha():  # Check if it's a month abbreviation
+                    # Split on the dash and take the first part
+                    parts = date_str.split('-')
+                    month_day = parts[0].strip()  # e.g., "Oct 4"
+                    date_str = month_day
+                
                 date_str += f" {get_basketball_season_year(date_str)}"
-                date = datetime.strptime(date_str, "%b %d %Y")
-                if date.date() >= current_date.date():
-                    location = cols[3].text.strip()
-                    home_away = 'Home' if location == 'Belleville' else 'Away'
-                    tipoff_time = None
+                
+                try:
+                    date = datetime.strptime(date_str, "%b %d %Y")
+                    if date.date() >= current_date.date():
+                        location = cols[3].text.strip()
+                        home_away = 'Home' if location == 'Belleville' else 'Away'
+                        tipoff_time = None
 
-                    if home_away == 'Home':
-                        tipoff_time_str = cols[4].text.strip()
-                        time_format = "%I:%M%p" if tipoff_time_str.endswith(("AM", "PM")) else "%I:%M"
-                        tipoff_time = datetime.strptime(tipoff_time_str, time_format) if tipoff_time_str else None
+                        if home_away == 'Home':
+                            tipoff_time_str = cols[4].text.strip()
+                            time_format = "%I:%M%p" if tipoff_time_str.endswith(("AM", "PM")) else "%I:%M"
+                            tipoff_time = datetime.strptime(tipoff_time_str, time_format) if tipoff_time_str else None
 
-                    game = Game(
-                        date=date,
-                        home_away=home_away,
-                        opponent=cols[2].text.strip(),
-                        tipoff_time=tipoff_time,
-                        game_url=SWIC_RECORD_URL
-                    )
-                    games.append(game)
+                        game = Game(
+                            date=date,
+                            home_away=home_away,
+                            opponent=cols[2].text.strip(),
+                            tipoff_time=tipoff_time,
+                            game_url=SWIC_RECORD_URL
+                        )
+                        games.append(game)
+                except ValueError as e:
+                    # Skip rows with unparseable dates
+                    continue
 
     return School(
         name="SWIC",
