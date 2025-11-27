@@ -347,7 +347,8 @@ async def fetch_hnt(buffer=None):
 
                     # Escape special characters
                     tooltip_text = (
-                        summary.replace("\\", "\\\\")
+                        summary.replace('\n', ' ')      # Convert newlines to spaces
+                        .replace("\\", "\\\\")
                         .replace('"', '\\"')
                         .replace("|", "\\|")
                     )
