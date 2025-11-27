@@ -19,15 +19,92 @@ import asyncio
 import datetime
 import re
 from dataclasses import dataclass
-from typing import Set, Optional
+from typing import Optional
 
 import aiohttp
 import requests
 from aiohttp import ClientTimeout
 from bs4 import BeautifulSoup, Tag
+import json
+import os
+import subprocess
+
+# Cache directory for HN comment summaries
+CACHE_DIR = os.path.expanduser("~/.cache/swiftbar_hn_summaries")
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+
+def get_cached_summary(story_id: str) -> Optional[str]:
+    """Retrieve cached summary for a HN story."""
+    cache_file = os.path.join(CACHE_DIR, f"{story_id}.json")
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'r') as f:
+                data = json.load(f)
+                return data.get('summary')
+        except Exception:
+            return None
+    return None
+
+
+def save_summary_cache(story_id: str, summary: str) -> None:
+    """Save summary to cache."""
+    cache_file = os.path.join(CACHE_DIR, f"{story_id}.json")
+    try:
+        with open(cache_file, 'w') as f:
+            json.dump({
+                'story_id': story_id,
+                'summary': summary,
+                'timestamp': datetime.datetime.now().isoformat()
+            }, f)
+    except Exception as e:
+        pass  # Silently fail on cache write
+
+
+def get_hn_discussion_summary(story_id: str) -> str:
+    """Fetch HN discussion summary using LLM with caching."""
+    # Check cache first
+    cached = get_cached_summary(story_id)
+    if cached:
+        return cached
+
+    try:
+        # Run llm command with HN plugin
+        cmd = [
+            "llm",
+            "-m",
+            "gemini/gemini-2.5-flash",
+            "-f",
+            f"hn:{story_id}",
+            "summarize this discussion. 2 structured paragraphs max. focus on key insights and disagreements.",
+        ]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=3,  # Reduced from 30 to 3 seconds
+        )
+
+        if result.returncode == 0:
+            summary = result.stdout.strip()
+            # Cache the result
+            save_summary_cache(story_id, summary)
+            return summary
+        else:
+            return "See HN discussion"
+
+    except subprocess.TimeoutExpired:
+        return "See HN discussion"
+    except FileNotFoundError:
+        return "See HN discussion"  # Fallback when llm not installed
+    except Exception as e:
+        return "See HN discussion"
+
 import time
 from io import StringIO
 from requests.adapters import HTTPAdapter, Retry
+
 
 # Constants
 TECHMEME_URL = "https://www.techmeme.com/"
@@ -141,10 +218,10 @@ def format_headline(title, url, tags=None, summary=None):
     """Format headlines with full title and summary tooltip."""
     tags_text = f"[{', '.join(tags)}] " if tags else ""
     full_title = f"{tags_text}{title}"
-    
+
     # Use summary as tooltip if available, otherwise use title
     tooltip_text = summary if summary else title
-    
+
     # Escape special characters for SwiftBar:
     # 1. Escape backslashes first (must be first to avoid double-escaping)
     tooltip_text = tooltip_text.replace('\\', '\\\\')
@@ -152,11 +229,11 @@ def format_headline(title, url, tags=None, summary=None):
     tooltip_text = tooltip_text.replace('"', '\\"')
     # 3. Escape pipe characters (they have special meaning in SwiftBar)
     tooltip_text = tooltip_text.replace('|', '\\|')
-    
+
     # Escape title too for any pipes or special chars
     full_title = full_title.replace('|', ' ')  # Remove pipes from display title
     full_title = full_title.replace('"', '\\"')
-    
+
     return f"-- {full_title} | href={url} tooltip=\"{tooltip_text}\" trim=false\n"
 
 
@@ -213,7 +290,7 @@ async def fetch_techmeme(buffer=None):
             summary = ''
             ii_elem = story.select_one('.ii')
             if ii_elem:
-                # Get the HTML string to find text after </strong>
+                # Get the HTML string to find text after </strong> 
                 ii_html = str(ii_elem)
                 if '</strong>' in ii_html:
                     # Get everything after the closing </strong> tag
@@ -231,7 +308,7 @@ async def fetch_techmeme(buffer=None):
             continue
 
 
-async def fetch_hn(buffer=None):
+async def fetch_hnt(buffer=None):
     if buffer is None:
         buffer = StringIO()
     # Use Algolia API for richer metadata in a single request
@@ -245,27 +322,44 @@ async def fetch_hn(buffer=None):
                 response.raise_for_status()
                 data = await response.json()
 
-                for hit in data.get('hits', [])[:MAX_HEADLINES]:
-                    title = hit.get('title', 'Untitled')
-                    story_id = hit.get('objectID')
-                    points = hit.get('points', 0)
-                    num_comments = hit.get('num_comments', 0)
-                    author = hit.get('author', 'unknown')
+                for hit in data.get("hits", [])[:MAX_HEADLINES]:
+                    title = hit.get("title", "Untitled")
+                    story_id = hit.get("objectID")
+                    points = hit.get("points", 0)
+                    num_comments = hit.get("num_comments", 0)
+                    author = hit.get("author", "unknown")
 
-                    # Format title with upvotes and comments - Option 3 format
+                    # Format title with upvotes and comments
                     formatted_title = f"[{points}↑] {title} ({num_comments}􀌪)"
-                    
-                    # Tooltip shows author
-                    summary = f"by {author}"
-                    
-                    # Escape special characters
-                    tooltip_text = summary.replace('\\', '\\\\').replace('"', '\\"').replace('|', '\\|')
-                    formatted_title_escaped = formatted_title.replace('|', ' ').replace('"', '\\"')
 
-                    buffer.write(f"-- {formatted_title_escaped} | href={HN_URL}item?id={story_id} tooltip=\"{tooltip_text}\" trim=false\n")
+                    # Fetch discussion summary from LLM with timeout protection
+                    try:
+                        summary = await asyncio.wait_for(
+                            asyncio.to_thread(get_hn_discussion_summary, story_id),
+                            timeout=5.0,  # 5 second timeout per story
+                        )
+                    except asyncio.TimeoutError:
+                        summary = (
+                            f"{num_comments} comments"  # Fallback to comment count
+                        )
+                    except Exception:
+                        summary = f"{num_comments} comments"  # Fallback on any error
+
+                    # Escape special characters
+                    tooltip_text = (
+                        summary.replace("\\", "\\\\")
+                        .replace('"', '\\"')
+                        .replace("|", "\\|")
+                    )
+                    formatted_title_escaped = formatted_title.replace("|", " ").replace(
+                        '"', '\\"'
+                    )
+
+                    buffer.write(
+                        f'-- {formatted_title_escaped} | href={HN_URL}item?id={story_id} tooltip="{tooltip_text}" trim=false\n'
+                    )
     except Exception as e:
         buffer.write(f"-- Error fetching HN: {e}\n")
-
 
 async def fetch_lobsters(buffer=None):
     if buffer is None:
@@ -301,9 +395,9 @@ async def fetch_lobsters(buffer=None):
 async def fetch_stltoday(buffer=None):
     if buffer is None:
         buffer = StringIO()
-    
+
     buffer.write(f"STLToday | href={STLTODAY_URL}\n")
-    
+
     def sync_fetch_stl():
         try:
             session = setup_sync_session()
@@ -329,7 +423,7 @@ async def fetch_stltoday(buffer=None):
                         title_elem = article_elem.select_one('.card-headline a, .tnt-headline a, .tnt-asset-link')
                         if not title_elem:
                             continue
-                            
+
                         headline = title_elem.get('aria-label') if title_elem and title_elem.has_attr('aria-label') else title_elem.get_text(strip=True)
                         link = title_elem['href'] if title_elem else ''
                         summary_elem = article_elem.select_one('div.card-lead p')
@@ -343,31 +437,31 @@ async def fetch_stltoday(buffer=None):
                         ).with_full_link(STLTODAY_URL)
 
                         articles.append(article)
-                        
+
                         if len(articles) >= MAX_HEADLINES:
                             break
-                            
+
                     except Exception:
                         continue
-                        
+
                 if len(articles) >= MAX_HEADLINES:
                     break
 
             return articles[:MAX_HEADLINES]
-            
+
         except Exception as e:
             return [f"Error fetching STLToday: {e}"]
 
     try:
         articles = await asyncio.to_thread(sync_fetch_stl)
-        
+
         if isinstance(articles, list) and articles and isinstance(articles[0], str):
             # Error message
             buffer.write(f"--⚠️ {articles[0]}\n")
         else:
             for article in articles:
                 buffer.write(format_stl_headline(article))
-                
+
     except Exception as e:
         buffer.write(f"--⚠️ Error fetching STLToday: {e}\n")
 
@@ -375,9 +469,9 @@ async def fetch_stltoday(buffer=None):
 async def fetch_bnd(buffer=None):
     if buffer is None:
         buffer = StringIO()
-    
+
     buffer.write(f"BND | href={BND_URL}\n")
-    
+
     def sync_fetch_bnd():
         try:
             session = setup_sync_session()
@@ -454,20 +548,20 @@ async def fetch_bnd(buffer=None):
                                 break
 
             return articles[:MAX_HEADLINES]
-            
+
         except Exception as e:
             return [f"Error fetching BND: {e}"]
 
     try:
         articles = await asyncio.to_thread(sync_fetch_bnd)
-        
+
         if isinstance(articles, list) and articles and isinstance(articles[0], str):
             # Error message
             buffer.write(f"--⚠️ {articles[0]}\n")
         else:
             for article in articles:
                 buffer.write(format_bnd_headline(article))
-                
+
     except Exception as e:
         buffer.write(f"--⚠️ Error fetching BND: {e}\n")
 
@@ -481,7 +575,7 @@ async def main():
 
     techmeme, hn, lobsters, stltoday, bnd = await asyncio.gather(
         fetch_and_buffer(fetch_techmeme),
-        fetch_and_buffer(fetch_hn),
+        fetch_and_buffer(fetch_hnt),
         fetch_and_buffer(fetch_lobsters),
         fetch_and_buffer(fetch_stltoday),
         fetch_and_buffer(fetch_bnd)
