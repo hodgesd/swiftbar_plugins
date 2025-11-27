@@ -105,6 +105,27 @@ import time
 from io import StringIO
 from requests.adapters import HTTPAdapter, Retry
 
+def format_hn_tooltip(summary: str) -> str:
+    """Format HN discussion summary with clear visual structure for single-line tooltips."""
+    # Split into paragraphs
+    paragraphs = [p.strip() for p in summary.split('\n\n') if p.strip()]
+
+    if len(paragraphs) <= 1:
+        # Single paragraph - just clean it up
+        return re.sub(r'\s+', ' ', summary).strip()
+
+    # Format each paragraph with visual separator for single-line display
+    formatted_paras = []
+    for i, para in enumerate(paragraphs, start=1):
+        # Clean up internal whitespace
+        clean_para = re.sub(r'\s+', ' ', para).strip()
+        # Add section marker
+        formatted_paras.append(f"[{i}] {clean_para}")
+
+    # Join with strong visual separator
+    return '  ━━  '.join(formatted_paras)
+
+
 
 # Constants
 TECHMEME_URL = "https://www.techmeme.com/"
@@ -345,9 +366,10 @@ async def fetch_hnt(buffer=None):
                     except Exception:
                         summary = f"{num_comments} comments"  # Fallback on any error
 
-                    # Escape special characters
+                    # Format summary with visual structure, then escape special characters
+                    formatted_summary = format_hn_tooltip(summary)
                     tooltip_text = (
-                        summary.replace('\n', ' ')      # Convert newlines to spaces
+                        formatted_summary
                         .replace("\\", "\\\\")
                         .replace('"', '\\"')
                         .replace("|", "\\|")
