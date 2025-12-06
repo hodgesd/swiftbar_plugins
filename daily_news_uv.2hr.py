@@ -9,10 +9,10 @@
 # ///
 
 # <swiftbar.title>Combined Tech News</swiftbar.title>
-# <swiftbar.version>v1.5</swiftbar.version>
+# <swiftbar.version>v1.6</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
-# <swiftbar.desc>Combines Techmeme, Hacker News, Lobste.rs, STLToday, and BND in one dropdown</swiftbar.desc>
+# <swiftbar.desc>Combines Techmeme, Hacker News, Lobste.rs, STLToday, BND, and STL PR in one dropdown</swiftbar.desc>
 # <swiftbar.dependencies>uv, beautifulsoup4, aiohttp, requests</swiftbar.dependencies>
 
 import asyncio
@@ -133,6 +133,7 @@ HN_URL = "https://news.ycombinator.com/"
 LOBSTERS_URL = "https://lobste.rs"
 STLTODAY_URL = "https://www.stltoday.com"
 BND_URL = "https://www.bnd.com"
+STLPR_URL = "https://www.stlpr.org"
 REQUEST_TIMEOUT = 10
 MAX_HEADLINES = 15
 TRIM_LENGTH = 80  # Character limit for headlines
@@ -290,6 +291,21 @@ def format_bnd_headline(article: Article, truncate_length: int = 75) -> str:
     tooltip_text = tooltip_text.replace('\\', '\\\\').replace('"', '\\"')
     return (f'-- '
             f'{display_headline} | href={article.link} tooltip="{tooltip_text}"\n')
+
+
+def format_stlpr_headline(article: Article, truncate_length: int = 75) -> str:
+    """Format STL PR article for SwiftBar menu display"""
+    display_headline = f"[{article.category}] {article.headline}"
+
+    # Use subtitle/summary as tooltip if available, otherwise use headline
+    tooltip_text = article.summary if article.summary else article.headline
+
+    if len(display_headline) > truncate_length:
+        display_headline = f"{display_headline[:truncate_length-3]}..."
+
+    # Escape quotes in tooltip
+    tooltip_text = tooltip_text.replace('\\', '\\\\').replace('"', '\\"')
+    return f"-- {display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
 
 
 async def fetch_techmeme(buffer=None):
@@ -590,6 +606,102 @@ async def fetch_bnd(buffer=None):
         buffer.write(f"--⚠️ Error fetching BND: {e}\n")
 
 
+async def fetch_stlpr(buffer=None):
+    if buffer is None:
+        buffer = StringIO()
+
+    buffer.write(f"STL PR | href={STLPR_URL}\n")
+
+    def sync_fetch_stlpr():
+        try:
+            session = setup_sync_session()
+            response = session.get(STLPR_URL, timeout=20)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            articles = []
+
+            # Find all ps-promo elements (custom web component)
+            promos = soup.find_all('ps-promo')
+
+            for promo in promos:
+                try:
+                    # Get all links in the promo
+                    links = promo.find_all('a', href=True)
+                    if len(links) < 3:
+                        continue
+
+                    # Link structure:
+                    # Link #0: Article link (empty text, has aria-label)
+                    # Link #1: Category link (has category name as text)
+                    # Link #2: Headline link (has the full headline as text)
+                    category = links[1].get_text(strip=True)
+                    headline = links[2].get_text(strip=True)
+                    link = links[2].get('href', '')
+
+                    if not link.startswith('http'):
+                        link = f"{STLPR_URL}{link}"
+
+                    # Get description from stripped strings
+                    # Format: [Author, '/', Publication, Category, Headline, Author (again), Description]
+                    # The description is the last item in the list (if it exists and is not metadata)
+                    all_text = list(promo.stripped_strings)
+                    summary = ''
+                    if len(all_text) > 0:
+                        # The description is typically the last item
+                        last_item = all_text[-1]
+                        # Filter out non-description items:
+                        # - Category, headline
+                        # - Publication names
+                        # - Time durations (e.g., "4:12", "40:16")
+                        # - Single-character items or forward slash
+                        # - Items that appear to be author names (in one of the link texts)
+                        link_texts = [link.get_text(strip=True) for link in links]
+                        is_link_text = last_item in link_texts
+                        is_duration = ':' in last_item and len(last_item) < 10  # e.g., "4:12"
+                        is_metadata = last_item in ['/', 'St. Louis Public Radio', 'Belleville News-Democrat', 'Nebraska Public Media']
+
+                        if (last_item != category and
+                            last_item != headline and
+                            not is_link_text and
+                            not is_duration and
+                            not is_metadata and
+                            len(last_item) > 10):  # Descriptions are usually longer than 10 chars
+                            summary = last_item
+
+                    article = Article(
+                        headline=headline,
+                        link=link,
+                        summary=summary,
+                        category=category if category else 'Uncategorized'
+                    )
+
+                    articles.append(article)
+
+                    if len(articles) >= MAX_HEADLINES:
+                        break
+
+                except Exception:
+                    continue
+
+            return articles[:MAX_HEADLINES]
+
+        except Exception as e:
+            return [f"Error fetching STL PR: {e}"]
+
+    try:
+        articles = await asyncio.to_thread(sync_fetch_stlpr)
+
+        if isinstance(articles, list) and articles and isinstance(articles[0], str):
+            # Error message
+            buffer.write(f"--⚠️ {articles[0]}\n")
+        else:
+            for article in articles:
+                buffer.write(format_stlpr_headline(article))
+
+    except Exception as e:
+        buffer.write(f"--⚠️ Error fetching STL PR: {e}\n")
+
+
 async def main():
     # Menubar Symbol
     print("􀤦")
@@ -597,12 +709,13 @@ async def main():
 
     start = time.time()
 
-    techmeme, hn, lobsters, stltoday, bnd = await asyncio.gather(
+    techmeme, hn, lobsters, stltoday, bnd, stlpr = await asyncio.gather(
         fetch_and_buffer(fetch_techmeme),
         fetch_and_buffer(fetch_hnt),
         fetch_and_buffer(fetch_lobsters),
         fetch_and_buffer(fetch_stltoday),
-        fetch_and_buffer(fetch_bnd)
+        fetch_and_buffer(fetch_bnd),
+        fetch_and_buffer(fetch_stlpr)
     )
 
     # Print each section sequentially
@@ -611,6 +724,7 @@ async def main():
     print(lobsters)
     print(stltoday)
     print(bnd)
+    print(stlpr)
 
     end = time.time()
     print("---")
