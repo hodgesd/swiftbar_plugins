@@ -194,7 +194,7 @@ async def getDOM(url):
                 response.raise_for_status()
                 return BeautifulSoup(await response.text(), 'html.parser')
     except Exception as e:
-        return f"--⚠️ Error fetching {url}: {e}\n"
+        return f"--⚠️ Error fetching {url}: {e} | color=red\n"
 
 
 def setup_sync_session() -> requests.Session:
@@ -295,7 +295,21 @@ def format_bnd_headline(article: Article, truncate_length: int = 75) -> str:
 
 def format_stlpr_headline(article: Article, truncate_length: int = 75) -> str:
     """Format STL PR article for SwiftBar menu display"""
-    display_headline = f"[{article.category}] {article.headline}"
+    # Map long category names to concise one-word versions
+    category_map = {
+        "Government, Politics & Issues": "Politics",
+        "News Briefs": "News",
+        "Economy & Business": "Business",
+        "Race, Identity & Faith": "Society",
+        "Culture & History": "Culture",
+        "Health, Science & Environment": "Science",
+        "Sports": "Sports",
+        "Arts": "Arts",
+    }
+
+    # Use mapped category if available, otherwise use original
+    short_category = category_map.get(article.category, article.category)
+    display_headline = f"[{short_category}] {article.headline}"
 
     # Use subtitle/summary as tooltip if available, otherwise use headline
     tooltip_text = article.summary if article.summary else article.headline
@@ -317,7 +331,7 @@ async def fetch_techmeme(buffer=None):
         return
 
     stories = result.select('.clus')
-    buffer.write(f"Techmeme | href={TECHMEME_URL}\n")
+    buffer.write(f"Techmeme | href={TECHMEME_URL} color=#00C853\n")
     for story in stories[:MAX_HEADLINES]:
         try:
             story_link = story.select_one('.ourh')['href']
@@ -350,7 +364,7 @@ async def fetch_hnt(buffer=None):
         buffer = StringIO()
     # Use Algolia API for richer metadata in a single request
     algolia_url = "https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=15"
-    buffer.write(f"Hacker News | href={HN_URL}\n")
+    buffer.write(f"Hacker News | href={HN_URL} color=#FF6600\n")
 
     try:
         timeout = ClientTimeout(total=REQUEST_TIMEOUT)
@@ -399,7 +413,7 @@ async def fetch_hnt(buffer=None):
                         f'-- {formatted_title_escaped} | href={HN_URL}item?id={story_id} tooltip="{tooltip_text}" trim=false\n'
                     )
     except Exception as e:
-        buffer.write(f"-- Error fetching HN: {e}\n")
+        buffer.write(f"-- Error fetching HN: {e} | color=red\n")
 
 async def fetch_lobsters(buffer=None):
     if buffer is None:
@@ -410,7 +424,7 @@ async def fetch_lobsters(buffer=None):
         return
 
     stories = result.select("ol.stories > li")[:MAX_HEADLINES]
-    buffer.write(f"Lobste.rs | href={LOBSTERS_URL}\n")
+    buffer.write(f"Lobste.rs | href={LOBSTERS_URL} color=#CC2200\n")
 
     for story in stories:
         try:
@@ -436,7 +450,7 @@ async def fetch_stltoday(buffer=None):
     if buffer is None:
         buffer = StringIO()
 
-    buffer.write(f"STLToday | href={STLTODAY_URL}\n")
+    buffer.write(f"STLToday | href={STLTODAY_URL} color=#1E88E5\n")
 
     def sync_fetch_stl():
         try:
@@ -503,14 +517,14 @@ async def fetch_stltoday(buffer=None):
                 buffer.write(format_stl_headline(article))
 
     except Exception as e:
-        buffer.write(f"--⚠️ Error fetching STLToday: {e}\n")
+        buffer.write(f"--⚠️ Error fetching STLToday: {e} | color=red\n")
 
 
 async def fetch_bnd(buffer=None):
     if buffer is None:
         buffer = StringIO()
 
-    buffer.write(f"BND | href={BND_URL}\n")
+    buffer.write(f"BND | href={BND_URL} color=#1976D2\n")
 
     def sync_fetch_bnd():
         try:
@@ -603,14 +617,14 @@ async def fetch_bnd(buffer=None):
                 buffer.write(format_bnd_headline(article))
 
     except Exception as e:
-        buffer.write(f"--⚠️ Error fetching BND: {e}\n")
+        buffer.write(f"--⚠️ Error fetching BND: {e} | color=red\n")
 
 
 async def fetch_stlpr(buffer=None):
     if buffer is None:
         buffer = StringIO()
 
-    buffer.write(f"STL PR | href={STLPR_URL}\n")
+    buffer.write(f"STL PR | href={STLPR_URL} color=#0D47A1\n")
 
     def sync_fetch_stlpr():
         try:
@@ -699,7 +713,7 @@ async def fetch_stlpr(buffer=None):
                 buffer.write(format_stlpr_headline(article))
 
     except Exception as e:
-        buffer.write(f"--⚠️ Error fetching STL PR: {e}\n")
+        buffer.write(f"--⚠️ Error fetching STL PR: {e} | color=red\n")
 
 
 async def main():
