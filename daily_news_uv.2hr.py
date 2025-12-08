@@ -136,7 +136,7 @@ BND_URL = "https://www.bnd.com"
 STLPR_URL = "https://www.stlpr.org"
 REQUEST_TIMEOUT = 10
 MAX_HEADLINES = 15
-TRIM_LENGTH = 80  # Character limit for headlines
+TRIM_LENGTH = 100  # Character limit for headlines
 
 # STLToday configuration
 STL_EXCLUDED_CATEGORIES = {
@@ -259,18 +259,16 @@ def format_headline(title, url, tags=None, summary=None):
     return f"-- {full_title} | href={url} tooltip=\"{tooltip_text}\" trim=false\n"
 
 
-def format_stl_headline(article: Article, truncate_length: int = 75) -> str:
+def format_stl_headline(article: Article) -> str:
     """Format STLToday article for SwiftBar menu display"""
     display_headline = f"[{article.category}] {article.headline}"
-    if len(display_headline) > truncate_length:
-        display_headline = f"{display_headline[:truncate_length-3]}..."
 
     # Escape quotes in tooltip
     tooltip_text = article.summary.replace('\\', '\\\\').replace('"', '\\"')
     return f"-- {display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
 
 
-def format_bnd_headline(article: Article, truncate_length: int = 75) -> str:
+def format_bnd_headline(article: Article) -> str:
     """Format BND article for SwiftBar menu display"""
     display_headline = article.headline
     if article.category:
@@ -284,16 +282,13 @@ def format_bnd_headline(article: Article, truncate_length: int = 75) -> str:
     if article.summary:
         tooltip_text = f"{tooltip_text}\n\n{article.summary}"
 
-    if len(display_headline) > truncate_length:
-        display_headline = f"{display_headline[:truncate_length-3]}..."
-
     # Escape quotes in tooltip
     tooltip_text = tooltip_text.replace('\\', '\\\\').replace('"', '\\"')
     return (f'-- '
             f'{display_headline} | href={article.link} tooltip="{tooltip_text}"\n')
 
 
-def format_stlpr_headline(article: Article, truncate_length: int = 75) -> str:
+def format_stlpr_headline(article: Article) -> str:
     """Format STL PR article for SwiftBar menu display"""
     # Map long category names to concise one-word versions
     category_map = {
@@ -313,9 +308,6 @@ def format_stlpr_headline(article: Article, truncate_length: int = 75) -> str:
 
     # Use subtitle/summary as tooltip if available, otherwise use headline
     tooltip_text = article.summary if article.summary else article.headline
-
-    if len(display_headline) > truncate_length:
-        display_headline = f"{display_headline[:truncate_length-3]}..."
 
     # Escape quotes in tooltip
     tooltip_text = tooltip_text.replace('\\', '\\\\').replace('"', '\\"')
