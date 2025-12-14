@@ -9,10 +9,10 @@
 # ///
 
 # <swiftbar.title>Combined Tech News</swiftbar.title>
-# <swiftbar.version>v1.6</swiftbar.version>
+# <swiftbar.version>v1.8</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
-# <swiftbar.desc>Combines Techmeme, Hacker News, Lobste.rs, STLToday, BND, and STL PR in one dropdown</swiftbar.desc>
+# <swiftbar.desc>Combines Techmeme, Hacker News, Lobste.rs, STLToday, BND, STL PR, MidAmerica Airport, and Mascoutah News in one dropdown</swiftbar.desc>
 # <swiftbar.dependencies>uv, beautifulsoup4, aiohttp, requests</swiftbar.dependencies>
 
 import asyncio
@@ -134,6 +134,7 @@ LOBSTERS_URL = "https://lobste.rs"
 STLTODAY_URL = "https://www.stltoday.com"
 BND_URL = "https://www.bnd.com"
 STLPR_URL = "https://www.stlpr.org"
+MIDAMERICA_API = "https://ws.iadsnetwork.com/rssfeeds.svc/GetRSSItems"
 REQUEST_TIMEOUT = 10
 MAX_HEADLINES = 15
 TRIM_LENGTH = 100  # Character limit for headlines
@@ -708,6 +709,122 @@ async def fetch_stlpr(buffer=None):
         buffer.write(f"--⚠️ Error fetching STL PR: {e} | color=red\n")
 
 
+async def fetch_midamerica(buffer=None):
+    if buffer is None:
+        buffer = StringIO()
+
+    buffer.write(f"MidAmerica Airport | href=https://www.heraldpubs.com/mid-america-airport/ color=#43A047\n")
+
+    try:
+        timeout = ClientTimeout(total=REQUEST_TIMEOUT)
+        async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
+            params = {
+                'type': 'keyword',
+                'query': 'Mid America Airport St. Louis',
+                'count': str(MAX_HEADLINES)
+            }
+            async with session.get(MIDAMERICA_API, params=params) as response:
+                response.raise_for_status()
+                data = await response.json()
+
+                items = data.get('d', [])
+                if not items:
+                    buffer.write("--⚠️ No articles available | color=gray\n")
+                    return
+
+                for item in items:
+                    try:
+                        # Parse HTML content to extract link and title
+                        content_html = item.get('content', '')
+                        if not content_html:
+                            continue
+
+                        soup = BeautifulSoup(content_html, 'html.parser')
+                        link_elem = soup.find('a')
+                        if not link_elem:
+                            continue
+
+                        title = link_elem.get_text(strip=True)
+                        url = link_elem.get('href', '')
+
+                        # Extract source from font tag
+                        source_elem = soup.find('font')
+                        source = source_elem.get_text(strip=True) if source_elem else ''
+
+                        # Format headline with source as category
+                        display_title = f"[{source}] {title}" if source else title
+
+                        # Escape special characters
+                        display_title = display_title.replace('|', ' ').replace('"', '\\"')
+                        tooltip_text = title.replace('\\', '\\\\').replace('"', '\\"')
+
+                        buffer.write(f'-- {display_title} | href={url} tooltip="{tooltip_text}"\n')
+
+                    except Exception:
+                        continue
+
+    except Exception as e:
+        buffer.write(f"--⚠️ Error fetching MidAmerica Airport: {e} | color=red\n")
+
+
+async def fetch_mascoutah(buffer=None):
+    if buffer is None:
+        buffer = StringIO()
+
+    buffer.write(f"Mascoutah News | href=https://www.heraldpubs.com/ color=#8E24AA\n")
+
+    try:
+        timeout = ClientTimeout(total=REQUEST_TIMEOUT)
+        async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
+            params = {
+                'type': 'keyword',
+                'query': 'Mascoutah',
+                'count': str(MAX_HEADLINES)
+            }
+            async with session.get(MIDAMERICA_API, params=params) as response:
+                response.raise_for_status()
+                data = await response.json()
+
+                items = data.get('d', [])
+                if not items:
+                    buffer.write("--⚠️ No articles available | color=gray\n")
+                    return
+
+                for item in items:
+                    try:
+                        # Parse HTML content to extract link and title
+                        content_html = item.get('content', '')
+                        if not content_html:
+                            continue
+
+                        soup = BeautifulSoup(content_html, 'html.parser')
+                        link_elem = soup.find('a')
+                        if not link_elem:
+                            continue
+
+                        title = link_elem.get_text(strip=True)
+                        url = link_elem.get('href', '')
+
+                        # Extract source from font tag
+                        source_elem = soup.find('font')
+                        source = source_elem.get_text(strip=True) if source_elem else ''
+
+                        # Format headline with source as category
+                        display_title = f"[{source}] {title}" if source else title
+
+                        # Escape special characters
+                        display_title = display_title.replace('|', ' ').replace('"', '\\"')
+                        tooltip_text = title.replace('\\', '\\\\').replace('"', '\\"')
+
+                        buffer.write(f'-- {display_title} | href={url} tooltip="{tooltip_text}"\n')
+
+                    except Exception:
+                        continue
+
+    except Exception as e:
+        buffer.write(f"--⚠️ Error fetching Mascoutah News: {e} | color=red\n")
+
+
 async def main():
     # Menubar Symbol
     print("􀤦")
@@ -715,13 +832,15 @@ async def main():
 
     start = time.time()
 
-    techmeme, hn, lobsters, stltoday, bnd, stlpr = await asyncio.gather(
+    techmeme, hn, lobsters, stltoday, bnd, stlpr, midamerica, mascoutah = await asyncio.gather(
         fetch_and_buffer(fetch_techmeme),
         fetch_and_buffer(fetch_hnt),
         fetch_and_buffer(fetch_lobsters),
         fetch_and_buffer(fetch_stltoday),
         fetch_and_buffer(fetch_bnd),
-        fetch_and_buffer(fetch_stlpr)
+        fetch_and_buffer(fetch_stlpr),
+        fetch_and_buffer(fetch_midamerica),
+        fetch_and_buffer(fetch_mascoutah)
     )
 
     # Print each section sequentially
@@ -731,6 +850,8 @@ async def main():
     print(stltoday)
     print(bnd)
     print(stlpr)
+    print(midamerica)
+    print(mascoutah)
 
     end = time.time()
     print("---")
