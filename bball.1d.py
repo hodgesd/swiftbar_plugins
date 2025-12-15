@@ -2,7 +2,7 @@
 import asyncio
 import re
 import string
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 from urllib.parse import quote
 
@@ -42,51 +42,48 @@ class School(BaseModel):
     schedule: Optional[list[Game]] = None
 
 
-school_urls = {
-    "BELLEVILLE_EAST": "https://www.maxpreps.com/il/belleville/belleville-east-lancers/basketball/schedule/",
+school_urls = {"BELLEVILLE_EAST": "https://www.maxpreps.com/il/belleville/belleville-east-lancers/basketball/schedule/",
     "O'FALLON": "https://www.maxpreps.com/il/ofallon/ofallon-panthers/basketball/schedule/",
     "MASCOUTAH": "https://www.maxpreps.com/il/mascoutah/mascoutah-indians/basketball/schedule/",
     "BELLEVILLE_WEST": "https://www.maxpreps.com/il/belleville/belleville-west-maroons/basketball/schedule/",
-    "EAST_ST_LOUIS": "https://www.maxpreps.com/il/east-st-louis/east-st-louis-flyers/basketball/schedule/",
-}
+    "EAST_ST_LOUIS": "https://www.maxpreps.com/il/east-st-louis/east-st-louis-flyers/basketball/schedule/", }
 
-college_urls = {
-    "SLU": "https://www.espn.com/mens-college-basketball/team/_/id/139/saint-louis-billikens",
+college_urls = {"SLU": "https://www.espn.com/mens-college-basketball/team/_/id/139/saint-louis-billikens",
     "SIUE": "https://www.espn.com/mens-college-basketball/team/_/id/2565/siu-edwardsville-cougars",
     "ILLINOIS": "https://www.espn.com/mens-college-basketball/team/_/id/356/illinois-fighting-illini",
-    "Lindenwood": "https://www.espn.com/mens-college-basketball/team/_/id/2815/lindenwood-lions"
-}
+    "Lindenwood": "https://www.espn.com/mens-college-basketball/team/_/id/2815/lindenwood-lions"}
 
 SWIC_URL = "https://www.swic.edu/students/services/student-life/athletics/mens-basketball/"
 
-# Constants for filtering
-# DAYS_TO_SHOW removed - now showing all future home games
 
 
 def get_current_basketball_season() -> str:
-    """Returns current basketball season in format '2024-25' based on current date."""
+    """Returns current basketball season in format '2025-26'."""
     current_date = datetime.now()
-    # Basketball season runs roughly Nov-Mar, so if we're in Nov-Dec use current year,
-    # if Jan-Oct use previous year as start year
-    if current_date.month >= 11:  # November or December
+
+    # Logic: Season starts in October.
+    # If today is Oct-Dec (10, 11, 12), season started this year.
+    # If today is Jan-Sep (1-9), season started last year.
+    if current_date.month >= 10:
         start_year = current_date.year
     else:
         start_year = current_date.year - 1
+
     end_year = start_year + 1
     return f"{start_year}-{str(end_year)[-2:]}"
 
 
 def get_swic_record_url() -> str:
-    """Generates SWIC record URL with current season."""
+    """Generates SWIC record URL using the stable team slug."""
     season = get_current_basketball_season()
-    return f"https://www.njcaa.org/sports/mbkb/{season}/div1/schedule?teamId=mjvavx3krm8kh0zb"
+    # Uses the 'teams/southwesternillinoiscollege' slug which is stable across years
+    return f"https://www.njcaaregion24.com/sports/mbkb/{season}/teams/southwesternillinoiscollege"
 
 
 async def fetch_html(session: aiohttp.ClientSession, url: str) -> BeautifulSoup:
     """Fetches HTML content from a given URL and returns a BeautifulSoup object."""
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-    }
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"}
     try:
         async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
             text = await response.text()
@@ -174,18 +171,12 @@ async def fetch_school_data(session: aiohttp.ClientSession, school: School) -> N
         # On error, leave school with minimal data (already has URL and timestamp)
         pass
 
+
 def parse_schedule(schedule_tag: Tag) -> list[Game]:
-    return [
-        Game(
-            date=parse_date(tds[0].text.strip()),
-            home_away=parse_home_away(tds[1].text),
-            opponent=extract_opponent(tds[1]),
-            tipoff_time=parse_tipoff_time(tds[2].text.strip()),
-            game_url=parse_game_url(tds[2])
-        )
-        for tr in schedule_tag.find_all('tr')
-        if (tds := tr.find_all('td')) and len(tds) >= 4
-    ]
+    return [Game(date=parse_date(tds[0].text.strip()), home_away=parse_home_away(tds[1].text),
+        opponent=extract_opponent(tds[1]), tipoff_time=parse_tipoff_time(tds[2].text.strip()),
+        game_url=parse_game_url(tds[2])) for tr in schedule_tag.find_all('tr') if
+        (tds := tr.find_all('td')) and len(tds) >= 4]
 
 
 def parse_game_url(game_td: Tag):
@@ -268,15 +259,26 @@ def generate_swiftbar_menu(list_of_schools: list[School], rank_scope: str = "") 
                 game_date = game.date.date()
                 # Filter: home games, today or future (no date limit)
                 if game.home_away == "Home" and today <= game_date:
-                    # Show time if available, otherwise show TBD
-                    time_str = game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else 'TBD'
-                    game_message = f"{game.date.strftime('%a, %b %d')}: {game.opponent} {time_str}"
+
+                    # Format time as 1930 (military, no colon) or TBD
+                    time_str = game.tipoff_time.strftime('%H%M') if game.tipoff_time else 'TBD'
+
+                    # Menu Item: "Tue, Jan 06: Alton @ 1930"
+                    game_message = f"{game.date.strftime('%a, %b %d')}: {game.opponent} @ {time_str}"
+
                     print(
                         f'--{bold_future(game.date, game_message)} | href = {game.game_url if game.game_url else ""} md=true')
 
-                    # Only show Fantastical option if we have an actual time
+                    # Fantastical Link
                     if game.tipoff_time:
-                        appointment_str = f"{game.date.strftime('%Y/%m/%d')} at {game.tipoff_time.strftime('%H%M')} {game.opponent} vs {school_name} at {school_name}"
+                        # Construct title string with quotes: "Opponent at School"
+                        # Example: "Alton at Belleville East"
+                        title_str = f'"{game.opponent} at {school_name}"'
+
+                        # Full sentence for Fantastical: 2025/01/06 at 1930 "Alton at Belleville East" at Belleville East
+                        # We specify the location at the end explicitly to be safe
+                        appointment_str = f"{game.date.strftime('%Y/%m/%d')} at {game.tipoff_time.strftime('%H%M')} {title_str} at {school_name}"
+
                         appointment_url_scheme = f'x-fantastical3://parse?add=1&sentence={quote(appointment_str)}'
                         print(f'----Add to Fantastical | href = {appointment_url_scheme} terminal=false')
 
@@ -344,79 +346,76 @@ async def extract_future_swic_games(session: aiohttp.ClientSession):
         if tbody:
             for row in tbody.find_all('tr'):
                 cols = row.find_all('td')
-                if len(cols) == 6:
+                # Relaxed check: Table usually has Date, Day, Opponent, Location, Time, Result
+                if len(cols) >= 5:
                     date_str = cols[0].text.strip()
 
-                    # Handle date ranges like "Oct 4-5 2024" by extracting the first date
-                    if '-' in date_str and date_str[0:3].isalpha():  # Check if it's a month abbreviation
-                        # Split on the dash and take the first part
-                        parts = date_str.split('-')
-                        month_day = parts[0].strip()  # e.g., "Oct 4"
-                        date_str = month_day
+                    # Skip header rows or empty dates
+                    if not date_str or date_str.lower() == "date":
+                        continue
 
+                    # Handle date ranges like "Oct 4-5 2024" by extracting the first date
+                    if '-' in date_str and date_str[0:3].isalpha():
+                        parts = date_str.split('-')
+                        date_str = parts[0].strip()
+
+                    # Append year calculation
                     date_str += f" {get_basketball_season_year(date_str)}"
 
                     try:
                         date = datetime.strptime(date_str, "%b %d %Y")
+
+                        # Only process future/today games
                         if date.date() >= current_date.date():
+                            # Column 3 is Location
                             location = cols[3].text.strip()
+
                             # SWIC home games show location as 'SWIC' or 'Belleville'
-                            home_away = 'Home' if location in ('Belleville', 'SWIC') else 'Away'
+                            # Added 'Sam Wolf' just in case they use the full campus name
+                            is_home = any(x in location for x in ['Belleville', 'SWIC', 'Sam Wolf'])
+                            home_away = 'Home' if is_home else 'Away'
+
+                            # Column 2 is Opponent
                             opponent = cols[2].text.strip()
 
                             tipoff_time = None
-
-                            # Parse tipoff time for home games, with error handling
                             if home_away == 'Home':
-                                try:
-                                    tipoff_time_str = cols[4].text.strip()
-                                    if tipoff_time_str:
-                                        # Remove any whitespace and handle different formats
-                                        time_format = "%I:%M%p" if tipoff_time_str.upper().endswith(("AM", "PM")) else "%I:%M"
-                                        tipoff_time = datetime.strptime(tipoff_time_str.upper(), time_format.upper())
-                                except (ValueError, IndexError):
-                                    # If time parsing fails, leave as None (will show as TBD)
-                                    tipoff_time = None
+                                # USE THE HELPER FUNCTION HERE
+                                # Column 4 is Time
+                                tipoff_time = parse_tipoff_time(cols[4].text.strip())
 
-                            game = Game(
-                                date=date,
-                                home_away=home_away,
-                                opponent=opponent,
-                                tipoff_time=tipoff_time,
-                                game_url=swic_record_url
-                            )
+                            game = Game(date=date, home_away=home_away, opponent=opponent, tipoff_time=tipoff_time,
+                                game_url=swic_record_url)
                             games.append(game)
-                    except ValueError as e:
+                    except ValueError:
                         # Skip rows with unparseable dates
                         continue
 
-        return School(
-            name="SWIC",
-            url=SWIC_URL,
-            last_updated=datetime.now(),
-            schedule=games,
-            record=swic_record
-        )
-    except Exception as e:
+        return School(name="SWIC", url=SWIC_URL, last_updated=datetime.now(), schedule=games, record=swic_record)
+    except Exception:
         # Return empty school on error
-        return School(
-            name="SWIC",
-            url=SWIC_URL,
-            last_updated=datetime.now(),
-            schedule=[],
-            record=None
-        )
+        return School(name="SWIC", url=SWIC_URL, last_updated=datetime.now(), schedule=[], record=None)
 
 
 async def extract_overall_record(session: aiohttp.ClientSession, url: str) -> Optional[str]:
-    """Extract overall record from NJCAA page with error handling."""
+    """Extract overall record from Region 24 page with robust fallback."""
     try:
         soup = await fetch_html(session, url)
-        overall_record_element = soup.find('span', class_='label', string='Overall')
-        if overall_record_element:
-            overall_record_value = overall_record_element.find_next_sibling('span', class_='value')
-            if overall_record_value:
-                return overall_record_value.get_text(strip=True)
+
+        # Method 1: Try standard PrestoSports HTML structure (span.label + span.value)
+        overall_label = soup.find('span', class_='label', string=re.compile(r'Overall', re.I))
+        if overall_label:
+            overall_value = overall_label.find_next_sibling('span', class_='value')
+            if overall_value:
+                return overall_value.get_text(strip=True)
+
+        # Method 2: Regex search in the entire text (Fallback)
+        # Matches "Overall 5-6", "Overall: 5-6", etc.
+        text = soup.get_text()
+        match = re.search(r'Overall\s*:?\s*(\d+-\d+)', text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+
     except Exception as e:
         pass
     return None
@@ -448,13 +447,8 @@ def extract_future_college_games(soup) -> list[Game]:
                 tipoff = datetime.strptime(time_span,
                                            "%I:%M %p") if home_away == "Home" and parsed_date >= datetime.now() and time_span else None
 
-                games.append(Game(
-                    date=parsed_date,
-                    home_away=home_away,
-                    opponent=opponent_span,
-                    tipoff_time=tipoff,
-                    game_url=game_url
-                ))
+                games.append(Game(date=parsed_date, home_away=home_away, opponent=opponent_span, tipoff_time=tipoff,
+                    game_url=game_url))
     except Exception:
         pass
     return games
@@ -489,25 +483,11 @@ async def process_single_college(session: aiohttp.ClientSession, url: str) -> Sc
 
         schedule = extract_future_college_games(soup)
 
-        return School(
-            url=url,
-            last_updated=datetime.now(),
-            name=school_name,
-            mascot=mascot,
-            record=record,
-            ranking=ranking,
-            schedule=schedule
-        )
+        return School(url=url, last_updated=datetime.now(), name=school_name, mascot=mascot, record=record,
+            ranking=ranking, schedule=schedule)
     except Exception:
-        return School(
-            url=url,
-            last_updated=datetime.now(),
-            name=None,
-            mascot=None,
-            record=None,
-            ranking=None,
-            schedule=[]
-        )
+        return School(url=url, last_updated=datetime.now(), name=None, mascot=None, record=None, ranking=None,
+            schedule=[])
 
 
 async def process_colleges(session: aiohttp.ClientSession, college_urls: dict[str, str]) -> list[School]:
@@ -526,12 +506,8 @@ async def main():
         swic_task = extract_future_swic_games(session)
         colleges_task = process_colleges(session, college_urls)
 
-        schools, swic, college_list = await asyncio.gather(
-            schools_task,
-            swic_task,
-            colleges_task,
-            return_exceptions=True
-        )
+        schools, swic, college_list = await asyncio.gather(schools_task, swic_task, colleges_task,
+            return_exceptions=True)
 
         # Filter out any exceptions and display valid results
         if isinstance(schools, list):
