@@ -60,7 +60,7 @@ college_urls = {
 SWIC_URL = "https://www.swic.edu/students/services/student-life/athletics/mens-basketball/"
 
 # Constants for filtering
-DAYS_TO_SHOW = 30  # Show games within next 30 days
+# DAYS_TO_SHOW removed - now showing all future home games
 
 
 def get_current_basketball_season() -> str:
@@ -141,26 +141,35 @@ async def fetch_school_data(session: aiohttp.ClientSession, school: School) -> N
         title_div = soup.select_one('.sub-title')
         school.name = title_div.text if title_div else None
 
-        # Get record from the record section
-        record_div = soup.select_one('.record div.block:first-child .data')
-        school.record = record_div.text if record_div else None
+        # Extract record and ranking from embedded JSON data
+        # MaxPreps uses Next.js and embeds data in __NEXT_DATA__ script tag
+        import json
+        import re
 
-        # Get conference standing - this includes ranking info
-        conf_div = soup.select_one('.record div.block:nth-child(2) .data')
-        conf_text = conf_div.text if conf_div else None
-
-        # Try to extract ranking if it exists
-        ranking = None
-        if conf_text:
+        script_tag = soup.find('script', id='__NEXT_DATA__')
+        if script_tag:
             try:
-                if '(' in conf_text:
-                    ranking_text = conf_text.split('(')[0].strip()
-                    if ranking_text.isdigit():
-                        ranking = int(ranking_text)
-            except (ValueError, IndexError):
-                pass
+                data = json.loads(script_tag.string)
+                # Navigate to teamContext
+                page_props = data.get('props', {}).get('pageProps', {})
+                team_context = page_props.get('teamContext', {})
 
-        school.ranking = ranking
+                # Get overall record from standingsData
+                standings = team_context.get('standingsData', {})
+                overall = standings.get('overallStanding', {})
+                school.record = overall.get('overallWinLossTies')
+
+                # Get state ranking from rankingsData (rankingType: 1 is state ranking)
+                rankings_data = team_context.get('rankingsData', {})
+                rankings_list = rankings_data.get('data', [])
+
+                # Find the state ranking (rankingType == 1)
+                for ranking_item in rankings_list:
+                    if ranking_item.get('rankingType') == 1:
+                        school.ranking = ranking_item.get('rank')
+                        break
+            except (json.JSONDecodeError, KeyError, ValueError):
+                pass
     except Exception as e:
         # On error, leave school with minimal data (already has URL and timestamp)
         pass
@@ -233,25 +242,32 @@ def extract_opponent(td: Tag) -> str:
 
 
 def generate_swiftbar_menu(list_of_schools: list[School], rank_scope: str = "") -> None:
-    """Generate SwiftBar menu with date filtering for upcoming games."""
+    """Generate SwiftBar menu showing all future home games."""
     sorted_schools = sort_schools(list_of_schools)
     print("---")
 
-    # Calculate date range for filtering
+    # Get today's date for filtering
     today = datetime.now().date()
-    max_date = today + timedelta(days=DAYS_TO_SHOW)
 
     for school in sorted_schools:
-        ranking_text = f"[{rank_scope} #{school.ranking}]" if school.ranking is not None else ""
+        # Format ranking with appropriate prefix
+        if school.ranking is not None:
+            ranking_text = f"[{rank_scope} #{school.ranking}] " if rank_scope else f"[#{school.ranking}] "
+        else:
+            ranking_text = ""
+
         school_name = school.name or ""
-        school_record = f"({school.record})" if school.record else ""
-        print(f"{ranking_text} {school_name} {school_record} | href = {school.url}")
+
+        # Always show record in (w-l) format if available
+        school_record = f" ({school.record})" if school.record else ""
+
+        print(f"{ranking_text}{school_name}{school_record} | href = {school.url}")
 
         if school.schedule:
             for game in school.schedule:
                 game_date = game.date.date()
-                # Filter: home games, today or future, within DAYS_TO_SHOW window
-                if game.home_away == "Home" and today <= game_date <= max_date:
+                # Filter: home games, today or future (no date limit)
+                if game.home_away == "Home" and today <= game_date:
                     # Show time if available, otherwise show TBD
                     time_str = game.tipoff_time.strftime('%I:%M %p') if game.tipoff_time else 'TBD'
                     game_message = f"{game.date.strftime('%a, %b %d')}: {game.opponent} {time_str}"
@@ -344,18 +360,28 @@ async def extract_future_swic_games(session: aiohttp.ClientSession):
                         date = datetime.strptime(date_str, "%b %d %Y")
                         if date.date() >= current_date.date():
                             location = cols[3].text.strip()
-                            home_away = 'Home' if location == 'Belleville' else 'Away'
+                            # SWIC home games show location as 'SWIC' or 'Belleville'
+                            home_away = 'Home' if location in ('Belleville', 'SWIC') else 'Away'
+                            opponent = cols[2].text.strip()
+
                             tipoff_time = None
 
+                            # Parse tipoff time for home games, with error handling
                             if home_away == 'Home':
-                                tipoff_time_str = cols[4].text.strip()
-                                time_format = "%I:%M%p" if tipoff_time_str.endswith(("AM", "PM")) else "%I:%M"
-                                tipoff_time = datetime.strptime(tipoff_time_str, time_format) if tipoff_time_str else None
+                                try:
+                                    tipoff_time_str = cols[4].text.strip()
+                                    if tipoff_time_str:
+                                        # Remove any whitespace and handle different formats
+                                        time_format = "%I:%M%p" if tipoff_time_str.upper().endswith(("AM", "PM")) else "%I:%M"
+                                        tipoff_time = datetime.strptime(tipoff_time_str.upper(), time_format.upper())
+                                except (ValueError, IndexError):
+                                    # If time parsing fails, leave as None (will show as TBD)
+                                    tipoff_time = None
 
                             game = Game(
                                 date=date,
                                 home_away=home_away,
-                                opponent=cols[2].text.strip(),
+                                opponent=opponent,
                                 tipoff_time=tipoff_time,
                                 game_url=swic_record_url
                             )
