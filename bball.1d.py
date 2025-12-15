@@ -345,25 +345,43 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "", games_wi
     today = datetime.now().date()
 
     for s in sorted_schools:
-        rank_txt = f"[{rank_scope} #{s.ranking}] " if (s.ranking and rank_scope) else (
-            f"[#{s.ranking}] " if s.ranking else "")
-        rec_txt = f" ({s.record})" if s.record else ""
+        rank_txt = f"[{rank_scope} #{s.ranking}]" if (s.ranking and rank_scope) else (
+            f"[#{s.ranking}]" if s.ranking else "")
 
         # UI: Win/Loss streak indicator
         streak_txt = ""
         if s.streak and s.streak_type:
             emoji = "🔥" if s.streak_type == "W" else "❄️"
-            streak_txt = f" {emoji}{s.streak_type}{s.streak}"
+            streak_txt = f"{emoji}{s.streak_type}{s.streak}"
 
         # UI: Orange dot if home game today
         has_game_today = any(g.home_away == "Home" and g.date.date() == today for g in s.schedule)
-        dot = " 🟠" if has_game_today else ""
+        dot = "🟠" if has_game_today else ""
 
         # UI: Tooltip with extra rankings
         # Using " | " separator as requested
         tooltip = f' tooltip="{s.rankings_tooltip}"' if s.rankings_tooltip else ""
 
-        print(f"{rank_txt}{s.name or ''}{rec_txt}{streak_txt}{dot} | href={s.url} font=Menlo-Bold{tooltip}")
+        # Align columns for high schools (monospace font)
+        # Format: [IL #123] School Name Mascot   (5-1) 🔥W5 🟠
+        if rank_scope:  # High schools with rankings
+            rank_col = rank_txt.ljust(10)  # "[IL #328]"
+            name_col = (s.name or "").ljust(24)  # "School Name Mascot  "
+            rec_col = f"({s.record})" if s.record else ""
+            rec_col = rec_col.ljust(6)  # "(5-1) "
+            streak_col = streak_txt.ljust(4)  # "🔥W5"
+
+            display_text = f"{rank_col} {name_col} {rec_col} {streak_col} {dot}".strip()
+        else:  # Colleges/SWIC - align records with high schools
+            # High schools: rank(10) + space + name(24) + space = 36 chars before record
+            name_col = (s.name or "").ljust(35)  # Align at column 36 with high schools
+            rec_col = f"({s.record})" if s.record else ""
+            rec_col = rec_col.ljust(6)  # "(5-1) "
+            streak_col = streak_txt.ljust(4)  # Streak indicator
+
+            display_text = f"{name_col} {rec_col} {streak_col} {dot}".strip()
+
+        print(f"{display_text} | href={s.url} font=Menlo-Bold{tooltip}")
 
         for g in s.schedule:
             if g.home_away == "Home" and g.date.date() >= today:
@@ -405,37 +423,8 @@ async def main():
         valid_swic = [swic_res] if isinstance(swic_res, School) else []
 
         # -- MENU BAR LOGIC --
-        # Find the very next home game across all schools
-        all_games = []
-        for s in valid_hs + valid_coll + valid_swic:
-            for g in s.schedule:
-                if g.home_away == "Home" and g.date.date() >= datetime.now().date():
-                    all_games.append(g)
-
-        all_games.sort(key=lambda x: x.date)
-
-        # Show next upcoming game in menu bar (not just today's)
-        if all_games:
-            next_g = all_games[0]
-            days_until = (next_g.date.date() - datetime.now().date()).days
-
-            # Format time in 12-hour format
-            if next_g.tipoff_time:
-                t_str = next_g.tipoff_time.strftime('%-I:%M %p')
-            else:
-                t_str = "TBD"
-
-            # Show different format based on proximity
-            if days_until == 0:
-                print(f"🏀 Tonight: {next_g.opponent} • {t_str}")
-            elif days_until == 1:
-                print(f"🏀 Tomorrow: {next_g.opponent} • {t_str}")
-            elif days_until <= 7:
-                print(f"🏀 {next_g.date.strftime('%a')}: {next_g.opponent} • {t_str}")
-            else:
-                print(f"🏀 Next: {next_g.date.strftime('%b %d')}")
-        else:
-            print("🏀")
+        # Always show SF Symbol in menu bar (no game details)
+        print("􁔛")
 
         # -- DROPDOWN --
         # Identify the next 5 games chronologically that should have Fantastical links
@@ -453,7 +442,7 @@ async def main():
 
         generate_swiftbar_menu(valid_hs, "IL", games_with_fantastical)
         if valid_swic: generate_swiftbar_menu(valid_swic, "", games_with_fantastical)
-        generate_swiftbar_menu(valid_coll, "Conf", games_with_fantastical)
+        generate_swiftbar_menu(valid_coll, "", games_with_fantastical)  # Use "" not "Conf" for alignment
 
 
 if __name__ == '__main__':
