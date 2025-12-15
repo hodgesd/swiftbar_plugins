@@ -40,6 +40,8 @@ class School:
     record: Optional[str] = None
     ranking: Optional[int] = None
     rankings_tooltip: Optional[str] = None
+    streak: Optional[int] = None  # Number of games in current streak
+    streak_type: Optional[str] = None  # "W" or "L"
     schedule: list[Game] = field(default_factory=list)
 
 
@@ -162,14 +164,17 @@ async def process_school(session: aiohttp.ClientSession, schedule_url: str) -> S
         title = soup_sched.select_one('.sub-title')
         school.name = title.text if title else None
 
-        # Get Record from Schedule Header JSON
+        # Get Record and Streak from Schedule Header JSON
         import json
         script_sched = soup_sched.find('script', id='__NEXT_DATA__')
         if script_sched:
             data = json.loads(script_sched.string)
             team_ctx = data.get('props', {}).get('pageProps', {}).get('teamContext', {}) or data.get('props', {}).get(
                 'pageProps', {}).get('team', {})
-            school.record = team_ctx.get('standingsData', {}).get('overallStanding', {}).get('overallWinLossTies')
+            overall_standing = team_ctx.get('standingsData', {}).get('overallStanding', {})
+            school.record = overall_standing.get('overallWinLossTies')
+            school.streak = overall_standing.get('streak')
+            school.streak_type = overall_standing.get('streakResult')
 
         # --- PARSE RANKINGS (from Rankings Soup) ---
         # We need the full rankings data which is usually better populated on the Rankings page
@@ -328,8 +333,12 @@ async def process_single_college(session: aiohttp.ClientSession, url: str) -> Sc
 
 
 # --- DISPLAY ---
-def generate_swiftbar_menu(schools: list[School], rank_scope: str = "") -> None:
+def generate_swiftbar_menu(schools: list[School], rank_scope: str = "", games_with_fantastical: set = None) -> None:
+    """Generate SwiftBar menu. games_with_fantastical is a set of game IDs that should show Fantastical links."""
     if not schools: return
+    if games_with_fantastical is None:
+        games_with_fantastical = set()
+
     sorted_schools = sorted(schools, key=lambda s: (s.ranking is None, s.ranking or float('inf')))
 
     print("---")
@@ -340,6 +349,12 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "") -> None:
             f"[#{s.ranking}] " if s.ranking else "")
         rec_txt = f" ({s.record})" if s.record else ""
 
+        # UI: Win/Loss streak indicator
+        streak_txt = ""
+        if s.streak and s.streak_type:
+            emoji = "🔥" if s.streak_type == "W" else "❄️"
+            streak_txt = f" {emoji}{s.streak_type}{s.streak}"
+
         # UI: Orange dot if home game today
         has_game_today = any(g.home_away == "Home" and g.date.date() == today for g in s.schedule)
         dot = " 🟠" if has_game_today else ""
@@ -348,12 +363,13 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "") -> None:
         # Using " | " separator as requested
         tooltip = f' tooltip="{s.rankings_tooltip}"' if s.rankings_tooltip else ""
 
-        print(f"{rank_txt}{s.name or ''}{rec_txt}{dot} | href={s.url} font=Menlo-Bold{tooltip}")
+        print(f"{rank_txt}{s.name or ''}{rec_txt}{streak_txt}{dot} | href={s.url} font=Menlo-Bold{tooltip}")
 
         for g in s.schedule:
             if g.home_away == "Home" and g.date.date() >= today:
                 display_time = f"@ {g.tipoff_time.strftime('%H%M')}" if g.tipoff_time else "(TBD)"
-                msg = f"{g.date.strftime('%a, %b %d')}: {g.opponent} {display_time}"
+                # Compact view: removed day name (%a) for cleaner display
+                msg = f"{g.date.strftime('%b %d')}: {g.opponent} {display_time}"
 
                 # UI: Highlight today's game
                 is_today = g.date.date() == today
@@ -363,7 +379,9 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "") -> None:
 
                 print(f'--{prefix}{msg}{suffix} | href={g.game_url or ""} md=true{color}')
 
-                if g.tipoff_time:
+                # Create unique game ID and check if this game should have Fantastical link
+                game_id = (s.name, g.date, g.opponent)
+                if g.tipoff_time and game_id in games_with_fantastical:
                     title = f'"{g.opponent} at {s.name}"'
                     appt = f"{g.date.strftime('%Y/%m/%d')} at {g.tipoff_time.strftime('%H%M')} {title} at {s.name}"
                     print(
@@ -396,18 +414,46 @@ async def main():
 
         all_games.sort(key=lambda x: x.date)
 
-        # If the next game is TODAY, show it in the menu bar
-        if all_games and all_games[0].date.date() == datetime.now().date():
+        # Show next upcoming game in menu bar (not just today's)
+        if all_games:
             next_g = all_games[0]
-            t_str = next_g.tipoff_time.strftime('%H%M') if next_g.tipoff_time else "TBD"
-            print(f"🏀 vs {next_g.opponent} @ {t_str}")
+            days_until = (next_g.date.date() - datetime.now().date()).days
+
+            # Format time in 12-hour format
+            if next_g.tipoff_time:
+                t_str = next_g.tipoff_time.strftime('%-I:%M %p')
+            else:
+                t_str = "TBD"
+
+            # Show different format based on proximity
+            if days_until == 0:
+                print(f"🏀 Tonight: {next_g.opponent} • {t_str}")
+            elif days_until == 1:
+                print(f"🏀 Tomorrow: {next_g.opponent} • {t_str}")
+            elif days_until <= 7:
+                print(f"🏀 {next_g.date.strftime('%a')}: {next_g.opponent} • {t_str}")
+            else:
+                print(f"🏀 Next: {next_g.date.strftime('%b %d')}")
         else:
             print("🏀")
 
         # -- DROPDOWN --
-        generate_swiftbar_menu(valid_hs, "IL")
-        if valid_swic: generate_swiftbar_menu(valid_swic, "")
-        generate_swiftbar_menu(valid_coll, "Conf")
+        # Identify the next 5 games chronologically that should have Fantastical links
+        MAX_FANTASTICAL_LINKS = 5
+        games_for_fantastical = []
+
+        for s in valid_hs + valid_coll + valid_swic:
+            for g in s.schedule:
+                if g.home_away == "Home" and g.date.date() >= datetime.now().date() and g.tipoff_time:
+                    games_for_fantastical.append((s.name, g.date, g.opponent))
+
+        # Sort by date and take first N
+        games_for_fantastical.sort(key=lambda x: x[1])
+        games_with_fantastical = set(games_for_fantastical[:MAX_FANTASTICAL_LINKS])
+
+        generate_swiftbar_menu(valid_hs, "IL", games_with_fantastical)
+        if valid_swic: generate_swiftbar_menu(valid_swic, "", games_with_fantastical)
+        generate_swiftbar_menu(valid_coll, "Conf", games_with_fantastical)
 
 
 if __name__ == '__main__':
