@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup, Tag
 # <bitbar.author>hodgesd</bitbar.author>
 # <bitbar.desc>Display local preps/college basketball schedules/ranking/records</bitbar.desc>
 # <bitbar.dependencies>python,aiohttp</bitbar.dependencies>
-# <bitbar.version>3.0</bitbar.version>
+# <bitbar.version>3.2</bitbar.version>
 # <swiftbar.hideAbout>true</swiftbar.hideAbout>
 # <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
 # <swiftbar.hideLastUpdated>true</swiftbar.hideLastUpdated>
@@ -39,6 +39,7 @@ class School:
     mascot: Optional[str] = None
     record: Optional[str] = None
     ranking: Optional[int] = None
+    rankings_tooltip: Optional[str] = None
     schedule: list[Game] = field(default_factory=list)
 
 
@@ -68,16 +69,13 @@ def get_basketball_season_year(date_str: str) -> int:
         if '/' in date_str:
             month = int(date_str.split('/')[0])
         else:
-            # Handles "Jan 06" or "Jan 06 2025"
             month = datetime.strptime(date_str.split()[0][:3], "%b").month
     except ValueError:
         return datetime.now().year
 
     current_date = datetime.now()
-    # If game is in the 'future' months (Jan-Jun) but we are in 'start' months (Jul-Dec)
     if month <= 6 and current_date.month >= 7:
         return current_date.year + 1
-    # If game is in 'start' months (Oct-Dec) but we are in 'future' months (Jan-Jun)
     elif month >= 10 and current_date.month <= 6:
         return current_date.year - 1
 
@@ -85,7 +83,7 @@ def get_basketball_season_year(date_str: str) -> int:
 
 
 def get_current_season_slug() -> str:
-    """Returns season string like '2025-26'."""
+    """Returns season string like '2025-26'. Rollover in Oct."""
     d = datetime.now()
     start_year = d.year if d.month >= 10 else d.year - 1
     end_year = start_year + 1
@@ -111,13 +109,11 @@ def parse_tipoff_time(time_str: str) -> Optional[datetime]:
     """Robust time parser."""
     try:
         cleaned = time_str.strip().upper()
-        # Common formats
         for fmt in ('%I:%M %p', '%I:%M%p'):
             try:
                 return datetime.strptime(cleaned, fmt)
             except ValueError:
                 continue
-        # Fallback: add PM if missing
         if not cleaned.endswith(('AM', 'PM')):
             cleaned = time_str.rstrip(string.ascii_letters).strip() + ' PM'
             return datetime.strptime(cleaned, '%I:%M %p')
@@ -133,13 +129,19 @@ def parse_home_away(text: str) -> str:
 
 
 # --- MAXPREPS LOGIC ---
-async def process_school(session: aiohttp.ClientSession, url: str) -> School:
-    school = School(url=url, last_updated=datetime.now())
+async def process_school(session: aiohttp.ClientSession, schedule_url: str) -> School:
+    school = School(url=schedule_url, last_updated=datetime.now())
     try:
-        soup = await fetch_html(session, school.url)
-        all_tables = soup.select("table tbody")
+        # 1. Fetch Schedule Page AND Rankings Page in parallel
+        rankings_url = schedule_url.replace('/schedule/', '/rankings/')
 
-        # Parse Schedule
+        soup_sched, soup_rank = await asyncio.gather(
+            fetch_html(session, schedule_url),
+            fetch_html(session, rankings_url)
+        )
+
+        # --- PARSE SCHEDULE (from Schedule Soup) ---
+        all_tables = soup_sched.select("table tbody")
         schedule_table = all_tables[1] if len(all_tables) > 1 else (all_tables[0] if all_tables else None)
         if schedule_table:
             school.schedule = [
@@ -156,22 +158,83 @@ async def process_school(session: aiohttp.ClientSession, url: str) -> School:
                 if (tds := tr.find_all('td')) and len(tds) >= 4
             ]
 
-        # Name
-        title = soup.select_one('.sub-title')
+        # Name & Record (from Schedule Soup)
+        title = soup_sched.select_one('.sub-title')
         school.name = title.text if title else None
 
-        # Record & Ranking (Embedded JSON)
+        # Get Record from Schedule Header JSON
         import json
-        script = soup.find('script', id='__NEXT_DATA__')
-        if script:
-            data = json.loads(script.string)
-            team_ctx = data.get('props', {}).get('pageProps', {}).get('teamContext', {})
+        script_sched = soup_sched.find('script', id='__NEXT_DATA__')
+        if script_sched:
+            data = json.loads(script_sched.string)
+            team_ctx = data.get('props', {}).get('pageProps', {}).get('teamContext', {}) or data.get('props', {}).get(
+                'pageProps', {}).get('team', {})
             school.record = team_ctx.get('standingsData', {}).get('overallStanding', {}).get('overallWinLossTies')
 
-            for r in team_ctx.get('rankingsData', {}).get('data', []):
-                if r.get('rankingType') == 1:
-                    school.ranking = r.get('rank')
-                    break
+        # --- PARSE RANKINGS (from Rankings Soup) ---
+        # We need the full rankings data which is usually better populated on the Rankings page
+        script_rank = soup_rank.find('script', id='__NEXT_DATA__')
+
+        il_rank = "NR"
+        div_rank = "NR"
+        stl_rank = "NR"
+
+        found_data = False
+
+        if script_rank:
+            try:
+                r_data = json.loads(script_rank.string)
+                # Navigate deep into rankings data
+                rank_ctx = r_data.get('props', {}).get('pageProps', {}).get('teamContext', {}) or r_data.get('props',
+                                                                                                             {}).get(
+                    'pageProps', {}).get('team', {})
+                rank_list = rank_ctx.get('rankingsData', {}).get('data', [])
+
+                for r in rank_list:
+                    # 1. State Rank (Type 1)
+                    if r.get('rankingType') == 1:
+                        val = r.get('rank', 'NR')
+                        il_rank = val
+                        school.ranking = val  # Use State rank for sorting
+
+                    # 2. Other Ranks (Check contextName, not name)
+                    context_name = r.get('contextName', '')
+                    val = r.get('rank', 'NR')
+
+                    if 'Division' in context_name or 'Class' in context_name:
+                        div_rank = val
+                    elif 'St. Louis' in context_name:
+                        stl_rank = val
+
+                found_data = True
+            except (KeyError, ValueError, AttributeError):
+                pass
+
+        # Fallback: Scrape HTML if JSON fails
+        if not found_data:
+            # Simple text search fallback for the soup
+            text = soup_rank.get_text()
+            # Try to find "Illinois #5" pattern
+            il_match = re.search(r'Illinois\s+#(\d+)', text)
+            if il_match:
+                il_rank = il_match.group(1)
+                school.ranking = int(il_match.group(1))
+
+            # Try to find "St. Louis #5"
+            stl_match = re.search(r'St\. Louis\s+#(\d+)', text)
+            if stl_match: stl_rank = stl_match.group(1)
+
+        # Build formatted tooltip: "IL# xxx | IL Div# yy | STL # xx"
+        # Only include if rank exists (not NR) to keep it clean, or show NR if preferred.
+        # User requested specific format.
+        tooltip_parts = []
+        if il_rank != "NR": tooltip_parts.append(f"IL# {il_rank}")
+        if div_rank != "NR": tooltip_parts.append(f"IL Div# {div_rank}")
+        if stl_rank != "NR": tooltip_parts.append(f"STL# {stl_rank}")
+
+        if tooltip_parts:
+            school.rankings_tooltip = " | ".join(tooltip_parts)
+
     except Exception:
         pass
     return school
@@ -196,8 +259,6 @@ async def extract_future_swic_games(session: aiohttp.ClientSession):
                 if len(cols) >= 5:
                     d_str = cols[0].text.strip()
                     if not d_str or d_str.lower() == "date": continue
-
-                    # Handle "Oct 4-5"
                     if '-' in d_str and d_str[0:3].isalpha(): d_str = d_str.split('-')[0].strip()
 
                     try:
@@ -228,11 +289,9 @@ async def process_single_college(session: aiohttp.ClientSession, url: str) -> Sc
     school = School(url=url, last_updated=datetime.now())
     try:
         soup = await fetch_html(session, url)
-        # Name
         name_el = soup.find('span', class_='db pr3 nowrap fw-bold')
         school.name = name_el.text if name_el else None
 
-        # Record & Ranking
         rec_ul = soup.find('ul', class_='ClubhouseHeader__Record')
         if rec_ul:
             lis = rec_ul.find_all('li')
@@ -241,7 +300,6 @@ async def process_single_college(session: aiohttp.ClientSession, url: str) -> Sc
                 match = re.search(r'#(\d+)', lis[1].text)
                 if match: school.ranking = int(match.group(1))
 
-        # Schedule
         games = []
         for a in soup.find_all('a', class_='Schedule__Game', href=True):
             if a.find('span', class_='Schedule__Time'):
@@ -251,7 +309,6 @@ async def process_single_college(session: aiohttp.ClientSession, url: str) -> Sc
                 ha_span = a.find('span', class_='Schedule_atVs')
                 ha = parse_home_away(ha_span.text) if ha_span else "Neutral"
 
-                # Time logic
                 times = a.find_all('span', class_='Schedule__Time')
                 t_str = times[1].text.strip().upper() if len(times) > 1 else None
                 tipoff = datetime.strptime(t_str, "%I:%M %p") if (
@@ -273,7 +330,6 @@ async def process_single_college(session: aiohttp.ClientSession, url: str) -> Sc
 # --- DISPLAY ---
 def generate_swiftbar_menu(schools: list[School], rank_scope: str = "") -> None:
     if not schools: return
-    # Sort: Ranked first, then null ranks
     sorted_schools = sorted(schools, key=lambda s: (s.ranking is None, s.ranking or float('inf')))
 
     print("---")
@@ -283,53 +339,74 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "") -> None:
         rank_txt = f"[{rank_scope} #{s.ranking}] " if (s.ranking and rank_scope) else (
             f"[#{s.ranking}] " if s.ranking else "")
         rec_txt = f" ({s.record})" if s.record else ""
-        print(f"{rank_txt}{s.name or ''}{rec_txt} | href={s.url}")
+
+        # UI: Orange dot if home game today
+        has_game_today = any(g.home_away == "Home" and g.date.date() == today for g in s.schedule)
+        dot = " 🟠" if has_game_today else ""
+
+        # UI: Tooltip with extra rankings
+        # Using " | " separator as requested
+        tooltip = f' tooltip="{s.rankings_tooltip}"' if s.rankings_tooltip else ""
+
+        print(f"{rank_txt}{s.name or ''}{rec_txt}{dot} | href={s.url} font=Menlo-Bold{tooltip}")
 
         for g in s.schedule:
             if g.home_away == "Home" and g.date.date() >= today:
-                # Time display logic
                 display_time = f"@ {g.tipoff_time.strftime('%H%M')}" if g.tipoff_time else "(TBD)"
                 msg = f"{g.date.strftime('%a, %b %d')}: {g.opponent} {display_time}"
 
-                # Formatting
+                # UI: Highlight today's game
                 is_today = g.date.date() == today
-
-                # Logic: Bold if future/today, Orange Color ONLY if Today
                 prefix = "**" if g.date >= datetime.now() else ""
                 suffix = "**" if g.date >= datetime.now() else ""
-                color_param = " color=#FFA500" if is_today else ""
+                color = " color=#FFA500" if is_today else ""
 
-                print(f'--{prefix}{msg}{suffix} | href={g.game_url or ""} md=true{color_param}')
+                print(f'--{prefix}{msg}{suffix} | href={g.game_url or ""} md=true{color}')
 
-                # Fantastical
                 if g.tipoff_time:
                     title = f'"{g.opponent} at {s.name}"'
                     appt = f"{g.date.strftime('%Y/%m/%d')} at {g.tipoff_time.strftime('%H%M')} {title} at {s.name}"
                     print(
                         f'----Add to Fantastical | href=x-fantastical3://parse?add=1&sentence={quote(appt)} terminal=false')
 
+
 # --- MAIN ---
 async def main():
-    print("􁗉")
     async with aiohttp.ClientSession() as session:
-        # Create tasks
         hs_tasks = [process_school(session, u) for u in school_urls.values()]
         coll_tasks = [process_single_college(session, u) for u in college_urls.values()]
 
-        # Run parallel
         hs_res, coll_res, swic_res = await asyncio.gather(
             asyncio.gather(*hs_tasks, return_exceptions=True),
             asyncio.gather(*coll_tasks, return_exceptions=True),
             extract_future_swic_games(session)
         )
 
-        # Filter valid results
         valid_hs = [r for r in hs_res if isinstance(r, School)]
         valid_coll = [r for r in coll_res if isinstance(r, School)]
+        valid_swic = [swic_res] if isinstance(swic_res, School) else []
 
-        # Render
+        # -- MENU BAR LOGIC --
+        # Find the very next home game across all schools
+        all_games = []
+        for s in valid_hs + valid_coll + valid_swic:
+            for g in s.schedule:
+                if g.home_away == "Home" and g.date.date() >= datetime.now().date():
+                    all_games.append(g)
+
+        all_games.sort(key=lambda x: x.date)
+
+        # If the next game is TODAY, show it in the menu bar
+        if all_games and all_games[0].date.date() == datetime.now().date():
+            next_g = all_games[0]
+            t_str = next_g.tipoff_time.strftime('%H%M') if next_g.tipoff_time else "TBD"
+            print(f"🏀 vs {next_g.opponent} @ {t_str}")
+        else:
+            print("🏀")
+
+        # -- DROPDOWN --
         generate_swiftbar_menu(valid_hs, "IL")
-        if isinstance(swic_res, School): generate_swiftbar_menu([swic_res], "")
+        if valid_swic: generate_swiftbar_menu(valid_swic, "")
         generate_swiftbar_menu(valid_coll, "Conf")
 
 
