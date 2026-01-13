@@ -1,4 +1,11 @@
-#!/Users/hodgesd/PycharmProjects/swiftbar_plugins/.venv/bin/python3.12
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.8"
+# dependencies = [
+#     "aiohttp>=3.8.0",
+#     "beautifulsoup4>=4.9.0",
+# ]
+# ///
 import asyncio
 import re
 import string
