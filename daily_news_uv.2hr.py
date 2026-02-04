@@ -83,7 +83,7 @@ def get_hn_discussion_summary(story_id: str) -> str:
             cmd,
             capture_output=True,
             text=True,
-            timeout=3,  # Reduced from 30 to 3 seconds
+            timeout=30,  # Allow sufficient time for LLM API calls, especially on slow connections
         )
 
         if result.returncode == 0:
@@ -366,6 +366,10 @@ async def fetch_hnt(buffer=None):
                 response.raise_for_status()
                 data = await response.json()
 
+                # Track consecutive timeouts for early bailout on bad connections
+                consecutive_timeouts = 0
+                max_consecutive_timeouts = 3  # Stop trying after 3 consecutive timeouts
+
                 for hit in data.get("hits", [])[:MAX_HEADLINES]:
                     title = hit.get("title", "Untitled")
                     story_id = hit.get("objectID")
@@ -377,17 +381,26 @@ async def fetch_hnt(buffer=None):
                     formatted_title = f"[{points}↑] {title} ({num_comments}􀌪)"
 
                     # Fetch discussion summary from LLM with timeout protection
-                    try:
-                        summary = await asyncio.wait_for(
-                            asyncio.to_thread(get_hn_discussion_summary, story_id),
-                            timeout=5.0,  # 5 second timeout per story
-                        )
-                    except asyncio.TimeoutError:
-                        summary = (
-                            f"{num_comments} comments"  # Fallback to comment count
-                        )
-                    except Exception:
-                        summary = f"{num_comments} comments"  # Fallback on any error
+                    # Skip LLM calls if we've had too many consecutive timeouts (bad connection)
+                    if consecutive_timeouts >= max_consecutive_timeouts:
+                        summary = f"{num_comments} comments"
+                    else:
+                        try:
+                            summary = await asyncio.wait_for(
+                                asyncio.to_thread(get_hn_discussion_summary, story_id),
+                                timeout=33.0,  # Allow time for 30s subprocess + overhead
+                            )
+                            # Reset timeout counter on success
+                            if summary != "See HN discussion":
+                                consecutive_timeouts = 0
+                            else:
+                                consecutive_timeouts += 1
+                        except asyncio.TimeoutError:
+                            consecutive_timeouts += 1
+                            summary = f"{num_comments} comments"
+                        except Exception:
+                            consecutive_timeouts += 1
+                            summary = f"{num_comments} comments"
 
                     # Format summary with visual structure, then escape special characters
                     formatted_summary = format_hn_tooltip(summary)
