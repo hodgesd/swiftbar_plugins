@@ -69,11 +69,11 @@ def get_hn_discussion_summary(story_id: str) -> str:
         return cached
 
     try:
-        # Run llm command with HN plugin
+        # Run llm command with HN plugin (use absolute path for SwiftBar compatibility)
         cmd = [
-            "llm",
+            "/Users/hodgesd/.local/bin/llm",
             "-m",
-            "gemini/gemini-2.5-flash",
+            "gpt-4o-mini",
             "-f",
             f"hn:{story_id}",
             "summarize this discussion. 2 structured paragraphs max. focus on key insights and disagreements.",
