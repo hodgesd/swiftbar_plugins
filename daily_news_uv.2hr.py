@@ -73,7 +73,7 @@ def get_hn_discussion_summary(story_id: str) -> str:
         cmd = [
             "/Users/hodgesd/.local/bin/llm",
             "-m",
-            "gpt-4o-mini",
+            "gemini-2.5-flash",
             "-f",
             f"hn:{story_id}",
             "summarize this discussion. 2 structured paragraphs max. focus on key insights and disagreements.",
