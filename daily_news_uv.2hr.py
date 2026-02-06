@@ -83,7 +83,7 @@ def get_hn_discussion_summary(story_id: str) -> str:
             cmd,
             capture_output=True,
             text=True,
-            timeout=30,  # Allow sufficient time for LLM API calls, especially on slow connections
+            timeout=15,  # Gemini 2.5 Flash: 1-3s typical, 15s allows generous buffer
         )
 
         if result.returncode == 0:
@@ -388,7 +388,7 @@ async def fetch_hnt(buffer=None):
                         try:
                             summary = await asyncio.wait_for(
                                 asyncio.to_thread(get_hn_discussion_summary, story_id),
-                                timeout=33.0,  # Allow time for 30s subprocess + overhead
+                                timeout=18.0,  # Allow time for 15s subprocess + overhead
                             )
                             # Reset timeout counter on success
                             if summary != "See HN discussion":
