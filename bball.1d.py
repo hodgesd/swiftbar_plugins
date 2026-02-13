@@ -62,12 +62,16 @@ FETCH_TIMEOUT_SECONDS = 10
 FETCH_RETRY_COUNT = 1
 SHOW_SECTION_HEADERS = True
 
-school_urls = {
+il_school_urls = {
     "BELLEVILLE_EAST": "https://www.maxpreps.com/il/belleville/belleville-east-lancers/basketball/schedule/",
     "O'FALLON": "https://www.maxpreps.com/il/ofallon/ofallon-panthers/basketball/schedule/",
     "MASCOUTAH": "https://www.maxpreps.com/il/mascoutah/mascoutah-indians/basketball/schedule/",
     "BELLEVILLE_WEST": "https://www.maxpreps.com/il/belleville/belleville-west-maroons/basketball/schedule/",
     "EAST_ST_LOUIS": "https://www.maxpreps.com/il/east-st-louis/east-st-louis-flyers/basketball/schedule/",
+}
+
+mo_school_urls = {
+    "VASHON": "https://www.maxpreps.com/mo/st-louis/vashon-wolverines/basketball/schedule/",
 }
 
 college_urls = {
@@ -300,10 +304,13 @@ async def process_school(session: aiohttp.ClientSession, schedule_url: str) -> S
             school.streak_type = overall_standing.get('streakResult')
 
         # --- PARSE RANKINGS (from Rankings Soup) ---
+        # Detect state from URL for proper labeling
+        state_abbrev = "IL" if "/il/" in schedule_url.lower() else "MO" if "/mo/" in schedule_url.lower() else "IL"
+        
         # We need the full rankings data which is usually better populated on the Rankings page
         script_rank = soup_rank.find('script', id='__NEXT_DATA__')
 
-        il_rank = "NR"
+        state_rank = "NR"
         div_rank = "NR"
         stl_rank = "NR"
 
@@ -322,7 +329,7 @@ async def process_school(session: aiohttp.ClientSession, schedule_url: str) -> S
                     # 1. State Rank (Type 1)
                     if r.get('rankingType') == 1:
                         val = r.get('rank', 'NR')
-                        il_rank = val
+                        state_rank = val
                         school.ranking = val  # Use State rank for sorting
 
                     # 2. Other Ranks (Check contextName, not name)
@@ -342,22 +349,21 @@ async def process_school(session: aiohttp.ClientSession, schedule_url: str) -> S
         if not found_data:
             # Simple text search fallback for the soup
             text = soup_rank.get_text()
-            # Try to find "Illinois #5" pattern
-            il_match = re.search(r'Illinois\s+#(\d+)', text)
-            if il_match:
-                il_rank = il_match.group(1)
-                school.ranking = int(il_match.group(1))
+            # Try to find state ranking (Illinois or Missouri)
+            state_pattern = r'(Illinois|Missouri)\s+#(\d+)'
+            state_match = re.search(state_pattern, text)
+            if state_match:
+                state_rank = state_match.group(2)
+                school.ranking = int(state_match.group(2))
 
             # Try to find "St. Louis #5"
             stl_match = re.search(r'St\. Louis\s+#(\d+)', text)
             if stl_match: stl_rank = stl_match.group(1)
 
-        # Build formatted tooltip: "IL# xxx | IL Div# yy | STL # xx"
-        # Only include if rank exists (not NR) to keep it clean, or show NR if preferred.
-        # User requested specific format.
+        # Build formatted tooltip with state-specific labels
         tooltip_parts = []
-        if il_rank != "NR": tooltip_parts.append(f"IL# {il_rank}")
-        if div_rank != "NR": tooltip_parts.append(f"IL Div# {div_rank}")
+        if state_rank != "NR": tooltip_parts.append(f"{state_abbrev}# {state_rank}")
+        if div_rank != "NR": tooltip_parts.append(f"{state_abbrev} Div# {div_rank}")
         if stl_rank != "NR": tooltip_parts.append(f"STL# {stl_rank}")
 
         if tooltip_parts:
@@ -631,16 +637,19 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "", section_
 # --- MAIN ---
 async def main():
     async with aiohttp.ClientSession() as session:
-        hs_tasks = [process_school(session, u) for u in school_urls.values()]
+        il_hs_tasks = [process_school(session, u) for u in il_school_urls.values()]
+        mo_hs_tasks = [process_school(session, u) for u in mo_school_urls.values()]
         coll_tasks = [process_single_college(session, u) for u in college_urls.values()]
 
-        hs_res, coll_res, swic_res = await asyncio.gather(
-            asyncio.gather(*hs_tasks, return_exceptions=True),
+        il_hs_res, mo_hs_res, coll_res, swic_res = await asyncio.gather(
+            asyncio.gather(*il_hs_tasks, return_exceptions=True),
+            asyncio.gather(*mo_hs_tasks, return_exceptions=True),
             asyncio.gather(*coll_tasks, return_exceptions=True),
             extract_future_swic_games(session)
         )
 
-        valid_hs = [r for r in hs_res if isinstance(r, School)]
+        valid_il_hs = [r for r in il_hs_res if isinstance(r, School)]
+        valid_mo_hs = [r for r in mo_hs_res if isinstance(r, School)]
         valid_coll = [r for r in coll_res if isinstance(r, School)]
         valid_swic = [swic_res] if isinstance(swic_res, School) else []
 
@@ -653,7 +662,7 @@ async def main():
         MAX_FANTASTICAL_LINKS = 5
         games_for_fantastical = []
 
-        for s in valid_hs + valid_coll + valid_swic:
+        for s in valid_il_hs + valid_mo_hs + valid_coll + valid_swic:
             for g in s.schedule:
                 if g.home_away == "Home" and g.date.date() >= datetime.now().date() and g.tipoff_time:
                     games_for_fantastical.append((s.name, g.date, g.opponent))
@@ -662,7 +671,8 @@ async def main():
         games_for_fantastical.sort(key=lambda x: x[1])
         games_with_fantastical = set(games_for_fantastical[:MAX_FANTASTICAL_LINKS])
 
-        generate_swiftbar_menu(valid_hs, "IL", "HIGH SCHOOLS", games_with_fantastical)
+        generate_swiftbar_menu(valid_il_hs, "IL", "ILLINOIS HIGH SCHOOLS", games_with_fantastical)
+        generate_swiftbar_menu(valid_mo_hs, "MO", "MISSOURI HIGH SCHOOLS", games_with_fantastical)
         if valid_swic: generate_swiftbar_menu(valid_swic, "", "COMMUNITY COLLEGE", games_with_fantastical)
         generate_swiftbar_menu(valid_coll, "", "DIVISION I", games_with_fantastical)
 
