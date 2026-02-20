@@ -48,6 +48,7 @@ class School:
     mascot: Optional[str] = None
     record: Optional[str] = None
     ranking: Optional[int] = None
+    net_rank: Optional[int] = None  # NCAA NET ranking (college only)
     rankings_tooltip: Optional[str] = None
     streak: Optional[int] = None  # Number of games in current streak
     streak_type: Optional[str] = None  # "W" or "L"
@@ -82,6 +83,7 @@ college_urls = {
 }
 
 SWIC_URL = "https://www.swic.edu/students/services/student-life/athletics/mens-basketball/"
+NCAA_NET_URL = "https://www.ncaa.com/rankings/basketball-men/d1/ncaa-mens-basketball-net-rankings"
 
 
 # --- HELPERS ---
@@ -186,6 +188,67 @@ def format_relative_date(game_date: datetime) -> str:
         return game_date.strftime('%a').upper()  # MON, TUE, etc.
     else:
         return game_date.strftime('%b %d')  # Jan 25
+
+
+async def fetch_ncaa_net_rankings(session: aiohttp.ClientSession) -> dict[str, int]:
+    """Fetch NCAA NET rankings. Returns dict mapping school name -> rank (1-based)."""
+    result: dict[str, int] = {}
+    soup, error = await fetch_html(session, NCAA_NET_URL)
+    if error:
+        return result
+    try:
+        # Parse table: rows have rank in first cell, school name in second
+        table = soup.find("table")
+        if table:
+            tbody = table.find("tbody") or table
+            for tr in tbody.find_all("tr"):
+                tds = tr.find_all("td")
+                if len(tds) >= 2:
+                    rank_cell = tds[0].get_text(strip=True)
+                    school_cell = tds[1].get_text(strip=True)
+                    if rank_cell.isdigit():
+                        result[school_cell] = int(rank_cell)
+        # Fallback: NCAA sometimes uses div-based layout or markdown in page
+        if not result:
+            text = soup.get_text()
+            for m in re.finditer(r'\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|', text):
+                rank_str, school = m.group(1), m.group(2).strip()
+                if rank_str.isdigit() and school and school not in ("Rank", "School", "---"):
+                    result[school] = int(rank_str)
+    except Exception:
+        pass
+    return result
+
+
+def match_school_to_net_rank(school_name: Optional[str], net_rankings: dict[str, int]) -> Optional[int]:
+    """Match a school name to NCAA NET ranking. Handles common name variations."""
+    if not school_name or not net_rankings:
+        return None
+    name = school_name.strip()
+    name_lower = name.lower()
+    # Direct match
+    if name in net_rankings:
+        return net_rankings[name]
+    # Case-insensitive match
+    for ncaa_name, rank in net_rankings.items():
+        if ncaa_name.lower() == name_lower:
+            return rank
+    # Known aliases for our tracked schools (ESPN vs NCAA name differences)
+    aliases = {
+        "slu": "Saint Louis",
+        "saint louis": "Saint Louis",
+        "siue": "SIUE",
+        "siu edwardsville": "SIUE",
+        "illinois": "Illinois",
+        "lindenwood": "Lindenwood",
+    }
+    if name_lower in aliases and aliases[name_lower] in net_rankings:
+        return net_rankings[aliases[name_lower]]
+    # NCAA name contained in school name (e.g. "Illinois" in "Illinois Fighting Illini")
+    for ncaa_name, rank in net_rankings.items():
+        if ncaa_name.lower() in name_lower:
+            return rank
+    return None
 
 
 async def parse_past_game_scores(session: aiohttp.ClientSession, game_url: str) -> tuple[Optional[str], Optional[str]]:
@@ -535,7 +598,11 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "", section_
     if games_with_fantastical is None:
         games_with_fantastical = set()
 
-    sorted_schools = sorted(schools, key=lambda s: (s.ranking is None, s.ranking or float('inf')))
+    # Sort by AP rank first, fall back to NET rank for colleges
+    def sort_rank(s: School):
+        r = s.ranking or s.net_rank
+        return (r is None, r or float('inf'))
+    sorted_schools = sorted(schools, key=sort_rank)
 
     # Show section header if configured
     if SHOW_SECTION_HEADERS and section_header:
@@ -550,9 +617,9 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "", section_
         rank_txt = f"[{rank_scope} #{s.ranking}]" if (s.ranking and rank_scope) else (
             f"[#{s.ranking}]" if s.ranking else "")
 
-        # UI: Win/Loss streak indicator
+        # UI: Win/Loss streak indicator (only show streaks > 2 games)
         streak_txt = ""
-        if s.streak and s.streak_type:
+        if s.streak and s.streak_type and s.streak > 2:
             emoji = "🔥" if s.streak_type == "W" else "❄️"
             streak_txt = f"{emoji}{s.streak_type}{s.streak}"
 
@@ -567,6 +634,8 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "", section_
         tooltip_parts = []
         if s.rankings_tooltip:
             tooltip_parts.append(s.rankings_tooltip)
+        if s.net_rank:
+            tooltip_parts.append(f"NET #{s.net_rank}")
         if s.last_successful_update:
             tooltip_parts.append(f"Updated: {s.last_successful_update.strftime('%b %d %H:%M')}")
         if s.fetch_error:
@@ -586,12 +655,14 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "", section_
             display_text = f"{error_icon}{rank_col} {name_col} {rec_col} {streak_col} {dot}".strip()
         else:  # Colleges/SWIC - align records with high schools
             # High schools: rank(10) + space + name(24) + space = 36 chars before record
-            name_col = (s.name or "Unknown").ljust(35)  # Align at column 36 with high schools
+            net_rank_txt = f"[# {s.net_rank}]" if s.net_rank else ""
+            net_rank_col = net_rank_txt.ljust(8) if net_rank_txt else ""  # "[# 23] "
+            name_col = (s.name or "Unknown").ljust(35 if not net_rank_col else 28)
             rec_col = f"({s.record})" if s.record else ""
             rec_col = rec_col.ljust(6)  # "(5-1) "
             streak_col = streak_txt.ljust(4)  # Streak indicator
 
-            display_text = f"{error_icon}{name_col} {rec_col} {streak_col} {dot}".strip()
+            display_text = f"{error_icon}{net_rank_col}{name_col} {rec_col} {streak_col} {dot}".strip()
 
         print(f"{display_text} | href={s.url} font=Menlo-Bold{tooltip}")
         
@@ -641,17 +712,22 @@ async def main():
         mo_hs_tasks = [process_school(session, u) for u in mo_school_urls.values()]
         coll_tasks = [process_single_college(session, u) for u in college_urls.values()]
 
-        il_hs_res, mo_hs_res, coll_res, swic_res = await asyncio.gather(
+        il_hs_res, mo_hs_res, coll_res, swic_res, net_rankings = await asyncio.gather(
             asyncio.gather(*il_hs_tasks, return_exceptions=True),
             asyncio.gather(*mo_hs_tasks, return_exceptions=True),
             asyncio.gather(*coll_tasks, return_exceptions=True),
-            extract_future_swic_games(session)
+            extract_future_swic_games(session),
+            fetch_ncaa_net_rankings(session)
         )
 
         valid_il_hs = [r for r in il_hs_res if isinstance(r, School)]
         valid_mo_hs = [r for r in mo_hs_res if isinstance(r, School)]
         valid_coll = [r for r in coll_res if isinstance(r, School)]
         valid_swic = [swic_res] if isinstance(swic_res, School) else []
+
+        # Apply NCAA NET rankings to college schools
+        for s in valid_coll:
+            s.net_rank = match_school_to_net_rank(s.name, net_rankings)
 
         # -- MENU BAR LOGIC --
         # Always show SF Symbol in menu bar (no game details)
