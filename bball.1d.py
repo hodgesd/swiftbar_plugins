@@ -61,6 +61,7 @@ class School:
 MAX_PAST_GAMES_DISPLAY = 2
 FETCH_TIMEOUT_SECONDS = 10
 FETCH_RETRY_COUNT = 1
+FETCH_LIMIT_PER_HOST = 3  # Throttle concurrent connections per host to avoid rate limiting
 SHOW_SECTION_HEADERS = True
 
 il_school_urls = {
@@ -143,7 +144,8 @@ async def fetch_html(session: aiohttp.ClientSession, url: str) -> tuple[Beautifu
                 else:
                     error_msg = f"HTTP {response.status}"
                     if attempt < FETCH_RETRY_COUNT:
-                        await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
+                        backoff = 2.0 if response.status == 429 else 0.5 * (attempt + 1)
+                        await asyncio.sleep(backoff)
                         continue
                     return BeautifulSoup("", 'html.parser'), error_msg
         except asyncio.TimeoutError:
@@ -839,16 +841,17 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "", section_
 
             display_text = f"{error_icon}{rank_col} {name_col} {rec_col} {streak_col} {dot}".strip()
         else:  # Colleges/Community colleges - align records with high schools
-            # D1: NET rank; CC: NJCAA rank (if in top 25)
+            # D1: NET rank; CC: NJCAA rank (if in top 25). Use placeholder for unranked (spaces get trimmed by macOS menu).
+            RANK_COL_WIDTH = 8
             rank_val = s.net_rank or s.ranking
-            net_rank_txt = f"[# {rank_val}]" if rank_val else ""
-            net_rank_col = net_rank_txt.ljust(8) if net_rank_txt else ""  # "[# 23] "
-            name_col = (s.name or "Unknown").ljust(35 if not net_rank_col else 28)
+            net_rank_txt = f"[# {rank_val}]" if rank_val else "[  -  ]"
+            net_rank_col = net_rank_txt.ljust(RANK_COL_WIDTH)
+            name_col = (s.name or "Unknown").ljust(28)
             rec_col = f"({s.record})" if s.record else ""
             rec_col = rec_col.ljust(6)  # "(5-1) "
             streak_col = streak_txt.ljust(4)  # Streak indicator
 
-            display_text = f"{error_icon}{net_rank_col}{name_col} {rec_col} {streak_col} {dot}".strip()
+            display_text = f"{error_icon}{net_rank_col}{name_col} {rec_col} {streak_col} {dot}".rstrip()
 
         print(f"{display_text} | href={s.url} font=Menlo-Bold{tooltip}")
         
@@ -893,7 +896,8 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "", section_
 
 # --- MAIN ---
 async def main():
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector(limit_per_host=FETCH_LIMIT_PER_HOST)
+    async with aiohttp.ClientSession(connector=connector) as session:
         il_hs_tasks = [process_school(session, u) for u in il_school_urls.values()]
         mo_hs_tasks = [process_school(session, u) for u in mo_school_urls.values()]
         coll_tasks = [process_single_college(session, u) for u in college_urls.values()]
