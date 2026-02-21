@@ -83,6 +83,7 @@ college_urls = {
 }
 
 SWIC_URL = "https://www.swic.edu/students/services/student-life/athletics/mens-basketball/"
+VINCENNES_SCHEDULE_URL = "https://govutrailblazers.com/sports/mbkb/{season}/schedule"
 NCAA_NET_URL = "https://www.ncaa.com/rankings/basketball-men/d1/ncaa-mens-basketball-net-rankings"
 
 
@@ -117,6 +118,16 @@ def get_current_season_slug() -> str:
 def get_swic_record_url() -> str:
     """Generates SWIC record URL using the stable team slug."""
     return f"https://www.njcaaregion24.com/sports/mbkb/{get_current_season_slug()}/teams/southwesternillinoiscollege"
+
+
+def get_vincennes_record_url() -> str:
+    """Generates Vincennes University record URL using the stable team slug."""
+    return f"https://www.njcaaregion24.com/sports/mbkb/{get_current_season_slug()}/teams/vincennesuniversity"
+
+
+def get_njcaa_rankings_index_url() -> str:
+    """NJCAA DI rankings index for current season."""
+    return f"https://www.njcaa.org/sports/mbkb/rankings/DI/{get_current_season_slug()}"
 
 
 async def fetch_html(session: aiohttp.ClientSession, url: str) -> tuple[BeautifulSoup, Optional[str]]:
@@ -247,6 +258,76 @@ def match_school_to_net_rank(school_name: Optional[str], net_rankings: dict[str,
     # NCAA name contained in school name (e.g. "Illinois" in "Illinois Fighting Illini")
     for ncaa_name, rank in net_rankings.items():
         if ncaa_name.lower() in name_lower:
+            return rank
+    return None
+
+
+async def fetch_njcaa_rankings(session: aiohttp.ClientSession) -> dict[str, int]:
+    """Fetch NJCAA DI top 25. Returns dict mapping school name -> rank (1-based)."""
+    result: dict[str, int] = {}
+    try:
+        # Fetch index page to get latest week URL
+        index_soup, err = await fetch_html(session, get_njcaa_rankings_index_url())
+        if err:
+            return result
+        first_week_link = None
+        for a in index_soup.find_all("a", href=True):
+            href = a.get("href", "")
+            if "Week_" in href and "archives" not in href.lower() and "Preseason" not in href:
+                first_week_link = href
+                break
+        if not first_week_link:
+            # Fallback: try direct week URL pattern (may drift as season progresses)
+            first_week_link = f"https://www.njcaa.org/sports/mbkb/{get_current_season_slug()}/div1/rankings/Week_12"
+
+        if first_week_link.startswith("/"):
+            first_week_link = "https://www.njcaa.org" + first_week_link
+
+        soup, err = await fetch_html(session, first_week_link)
+        if err:
+            return result
+
+        # Parse table: Place | Name | Record | Points | 1st | Prev
+        table = soup.find("table")
+        if table:
+            tbody = table.find("tbody") or table
+            for tr in tbody.find_all("tr"):
+                tds = tr.find_all("td")
+                if len(tds) >= 2:
+                    rank_cell = tds[0].get_text(strip=True)
+                    school_cell = tds[1].get_text(strip=True)
+                    if rank_cell.isdigit() and school_cell:
+                        result[school_cell] = int(rank_cell)
+        if not result:
+            text = soup.get_text()
+            for m in re.finditer(r'\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|', text):
+                rank_str, school = m.group(1), m.group(2).strip()
+                if rank_str.isdigit() and school and school not in ("Place", "Name", "---"):
+                    result[school] = int(rank_str)
+    except Exception:
+        pass
+    return result
+
+
+def match_school_to_njcaa_rank(school_name: Optional[str], njcaa_rankings: dict[str, int]) -> Optional[int]:
+    """Match a community college name to NJCAA ranking. Handles name variations."""
+    if not school_name or not njcaa_rankings:
+        return None
+    name = school_name.strip()
+    name_lower = name.lower()
+    aliases = {
+        "swic": "Southwestern Illinois College",
+        "vincennes": "Vincennes University",
+    }
+    if name_lower in aliases and aliases[name_lower] in njcaa_rankings:
+        return njcaa_rankings[aliases[name_lower]]
+    if name in njcaa_rankings:
+        return njcaa_rankings[name]
+    for njcaa_name, rank in njcaa_rankings.items():
+        if njcaa_name.lower() == name_lower:
+            return rank
+        # Only match when our short name is start of NJCAA name (e.g. "Vincennes" -> "Vincennes University")
+        if njcaa_name.lower().startswith(name_lower + " ") or njcaa_name.lower().startswith(name_lower):
             return rank
     return None
 
@@ -521,6 +602,108 @@ async def extract_future_swic_games(session: aiohttp.ClientSession):
         return school
 
 
+# --- VINCENNES LOGIC ---
+async def extract_future_vincennes_games(session: aiohttp.ClientSession):
+    """Extract Vincennes University home games from govutrailblazers.com schedule."""
+    season = get_current_season_slug()
+    schedule_url = VINCENNES_SCHEDULE_URL.format(season=season)
+    record_url = get_vincennes_record_url()
+    school = School(name="Vincennes", url=schedule_url, last_updated=datetime.now())
+    errors = []
+
+    try:
+        soup, err_schedule = await fetch_html(session, schedule_url)
+        if err_schedule:
+            errors.append(f"Schedule: {err_schedule}")
+
+        record_soup, err_record = await fetch_html(session, record_url)
+        if err_record:
+            errors.append(f"Record: {err_record}")
+
+        record_match = re.search(r'Overall\s*:?\s*(\d+-\d+)', record_soup.get_text(), re.IGNORECASE)
+        school.record = record_match.group(1) if record_match else None
+
+        games = []
+        month_abbrev = {'January': 1, 'Jan': 1, 'February': 2, 'Feb': 2, 'March': 3, 'Mar': 3,
+                        'April': 4, 'Apr': 4, 'May': 5, 'June': 6, 'Jun': 6, 'July': 7, 'Jul': 7,
+                        'August': 8, 'Aug': 8, 'September': 9, 'Sep': 9, 'Sept': 9,
+                        'October': 10, 'Oct': 10, 'November': 11, 'Nov': 11, 'December': 12, 'Dec': 12}
+
+        rows = soup.find_all('div', class_='event-row')
+        for row in rows:
+            if 'home' not in (row.get('class') or []):
+                continue
+
+            opp_el = row.find(class_='event-opponent-name') or row.find(class_='team-name')
+            opponent = opp_el.get_text(strip=True) if opp_el else ""
+            if not opponent or 'Jamboree' in opponent or 'Do not count' in opponent:
+                continue
+
+            month_el = row.find_previous(class_='month-heading')
+            month_name = month_el.get_text(strip=True) if month_el else None
+            month_num = month_abbrev.get(month_name, 1) if month_name else 1
+
+            date_el = row.find(class_='date')
+            dateinfo_el = row.find(class_='event-dateinfo')
+            date_txt = date_el.get_text(strip=True) if date_el else ""
+            dateinfo_txt = dateinfo_el.get_text(strip=True) if dateinfo_el else ""
+
+            # Parse date: "Sat. 21" or "Tue. 3" or "Feb 21"
+            day_num = None
+            if re.match(r'^[A-Za-z]{3}\.\s*\d+', date_txt):
+                day_num = int(re.search(r'(\d+)$', date_txt).group(1))
+            elif re.match(r'^[A-Za-z]+\s+\d+', date_txt):
+                m = re.match(r'([A-Za-z]+)\s+(\d+)', date_txt)
+                if m:
+                    month_num = month_abbrev.get(m.group(1), month_num)
+                    day_num = int(m.group(2))
+
+            if day_num is None:
+                continue
+
+            year = get_basketball_season_year(f"{month_num}/{day_num}")
+            try:
+                dt = datetime(year, month_num, day_num)
+            except ValueError:
+                continue
+
+            result, score = None, None
+            tipoff = None
+            if 'Final' in dateinfo_txt:
+                score_match = re.search(r'([WL]),\s*(\d+-\d+)', dateinfo_txt)
+                if score_match:
+                    result = score_match.group(1)
+                    score = score_match.group(2)
+            else:
+                # Match valid hour (1-12) to avoid capturing "57" from "257:00" when date+time concatenated
+                time_match = re.search(r'([1-9]|1[0-2]):\d{2}\s*[AP]M(?:\s+[A-Z]{2,4})?', dateinfo_txt, re.I)
+                if time_match:
+                    time_str = re.sub(r'\s+[A-Z]{2,4}$', '', time_match.group(0).strip())
+                    tipoff = parse_tipoff_time(time_str)
+
+            games.append(Game(
+                date=dt,
+                home_away='Home',
+                opponent=opponent,
+                tipoff_time=tipoff,
+                game_url=schedule_url,
+                result=result,
+                score=score
+            ))
+
+        school.schedule = games
+        if errors:
+            school.fetch_error = "; ".join(errors)
+        elif games or school.record:
+            school.last_successful_update = datetime.now()
+
+        return school
+
+    except Exception as e:
+        school.fetch_error = f"Parse error: {type(e).__name__}"
+        return school
+
+
 # --- COLLEGE LOGIC ---
 async def process_single_college(session: aiohttp.ClientSession, url: str) -> School:
     school = School(url=url, last_updated=datetime.now())
@@ -636,6 +819,8 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "", section_
             tooltip_parts.append(s.rankings_tooltip)
         if s.net_rank:
             tooltip_parts.append(f"NET #{s.net_rank}")
+        elif s.ranking and not rank_scope:
+            tooltip_parts.append(f"NJCAA #{s.ranking}")
         if s.last_successful_update:
             tooltip_parts.append(f"Updated: {s.last_successful_update.strftime('%b %d %H:%M')}")
         if s.fetch_error:
@@ -653,9 +838,10 @@ def generate_swiftbar_menu(schools: list[School], rank_scope: str = "", section_
             streak_col = streak_txt.ljust(4)  # "🔥W5"
 
             display_text = f"{error_icon}{rank_col} {name_col} {rec_col} {streak_col} {dot}".strip()
-        else:  # Colleges/SWIC - align records with high schools
-            # High schools: rank(10) + space + name(24) + space = 36 chars before record
-            net_rank_txt = f"[# {s.net_rank}]" if s.net_rank else ""
+        else:  # Colleges/Community colleges - align records with high schools
+            # D1: NET rank; CC: NJCAA rank (if in top 25)
+            rank_val = s.net_rank or s.ranking
+            net_rank_txt = f"[# {rank_val}]" if rank_val else ""
             net_rank_col = net_rank_txt.ljust(8) if net_rank_txt else ""  # "[# 23] "
             name_col = (s.name or "Unknown").ljust(35 if not net_rank_col else 28)
             rec_col = f"({s.record})" if s.record else ""
@@ -712,22 +898,30 @@ async def main():
         mo_hs_tasks = [process_school(session, u) for u in mo_school_urls.values()]
         coll_tasks = [process_single_college(session, u) for u in college_urls.values()]
 
-        il_hs_res, mo_hs_res, coll_res, swic_res, net_rankings = await asyncio.gather(
+        il_hs_res, mo_hs_res, coll_res, swic_res, vincennes_res, net_rankings, njcaa_rankings = await asyncio.gather(
             asyncio.gather(*il_hs_tasks, return_exceptions=True),
             asyncio.gather(*mo_hs_tasks, return_exceptions=True),
             asyncio.gather(*coll_tasks, return_exceptions=True),
             extract_future_swic_games(session),
-            fetch_ncaa_net_rankings(session)
+            extract_future_vincennes_games(session),
+            fetch_ncaa_net_rankings(session),
+            fetch_njcaa_rankings(session)
         )
 
         valid_il_hs = [r for r in il_hs_res if isinstance(r, School)]
         valid_mo_hs = [r for r in mo_hs_res if isinstance(r, School)]
         valid_coll = [r for r in coll_res if isinstance(r, School)]
-        valid_swic = [swic_res] if isinstance(swic_res, School) else []
+        valid_cc = [r for r in (swic_res, vincennes_res) if isinstance(r, School)]
 
         # Apply NCAA NET rankings to college schools
         for s in valid_coll:
             s.net_rank = match_school_to_net_rank(s.name, net_rankings)
+
+        # Apply NJCAA rankings to community colleges (top 25 only)
+        for s in valid_cc:
+            rank = match_school_to_njcaa_rank(s.name, njcaa_rankings)
+            if rank is not None:
+                s.ranking = rank
 
         # -- MENU BAR LOGIC --
         # Always show SF Symbol in menu bar (no game details)
@@ -738,7 +932,7 @@ async def main():
         MAX_FANTASTICAL_LINKS = 5
         games_for_fantastical = []
 
-        for s in valid_il_hs + valid_mo_hs + valid_coll + valid_swic:
+        for s in valid_il_hs + valid_mo_hs + valid_coll + valid_cc:
             for g in s.schedule:
                 if g.home_away == "Home" and g.date.date() >= datetime.now().date() and g.tipoff_time:
                     games_for_fantastical.append((s.name, g.date, g.opponent))
@@ -749,7 +943,7 @@ async def main():
 
         generate_swiftbar_menu(valid_il_hs, "IL", "ILLINOIS HIGH SCHOOLS", games_with_fantastical)
         generate_swiftbar_menu(valid_mo_hs, "MO", "MISSOURI HIGH SCHOOLS", games_with_fantastical)
-        if valid_swic: generate_swiftbar_menu(valid_swic, "", "COMMUNITY COLLEGE", games_with_fantastical)
+        if valid_cc: generate_swiftbar_menu(valid_cc, "", "COMMUNITY COLLEGE", games_with_fantastical)
         generate_swiftbar_menu(valid_coll, "", "DIVISION I", games_with_fantastical)
 
 
