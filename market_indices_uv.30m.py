@@ -7,30 +7,47 @@
 # ///
 
 # <swiftbar.title>Market Indices Quick Glance</swiftbar.title>
-# <swiftbar.version>v1.0</swiftbar.version>
+# <swiftbar.version>v2.0</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Major market indices via ETF proxies with EMA-based signals</swiftbar.desc>
 # <swiftbar.dependencies>uv, yfinance</swiftbar.dependencies>
 
+import datetime
 import json
 import math
 from pathlib import Path
 from typing import Optional
 
-SYMBOLS = ["VOO", "QQQ", "DIA", "VXUS"]
+SYMBOLS = ["VOO", "QQQ", "IWM", "VXUS", "GLD"]
 LABELS = {
     "VOO": "S&P 500",
     "QQQ": "NASDAQ",
-    "DIA": "Dow Jones",
-    "VXUS": "Int'l",
+    "IWM": "Russell 2000",
+    "VXUS": "Int'l Markets",
+    "GLD": "Gold",
 }
+YAHOO_URL = "https://finance.yahoo.com/quote"
 
 STATE_FILE = Path.home() / ".swiftbar_market_cycle"
 CACHE_FILE = Path.home() / ".swiftbar_market_cache"
 
-# 1 year ensures enough trading days for a proper 200-day EMA seed
 HISTORY_PERIOD = "1y"
+
+SIGNAL_PRIORITY = {
+    "STRONG BUY": 0,
+    "BUY": 1,
+    "ACCUMULATE": 2,
+    "WATCH": 3,
+    "NEUTRAL": 4,
+}
+SIGNAL_COLORS = {
+    "STRONG BUY": "green",
+    "BUY": "dodgerblue",
+    "ACCUMULATE": "steelblue",
+    "WATCH": "orange",
+    "NEUTRAL": "",
+}
 
 
 def get_next_symbol() -> str:
@@ -61,15 +78,25 @@ def evaluate_signal(
     ema50: Optional[float],
     ema200: Optional[float],
     daily_pct: float,
-) -> tuple[str, str]:
-    """Return (label, color) in priority order: STRONG BUY > BUY > WATCH > NEUTRAL."""
-    if ema200 is not None and price < ema200:
-        return "STRONG BUY", "green"
+) -> str:
+    """Tiered mean-reversion signals with distance thresholds."""
+    if ema200 is not None:
+        dist200 = ((price - ema200) / ema200) * 100
+        if dist200 < -5.0:
+            return "STRONG BUY"
+        if dist200 < 0:
+            return "BUY"
     if ema50 is not None and price < ema50:
-        return "BUY", "blue"
+        return "ACCUMULATE"
     if daily_pct < -1.0:
-        return "WATCH", "orange"
-    return "NEUTRAL", ""
+        return "WATCH"
+    return "NEUTRAL"
+
+
+def detect_trend(ema50: Optional[float], ema200: Optional[float]) -> str:
+    if ema50 is None or ema200 is None:
+        return "N/A"
+    return "Bullish" if ema50 > ema200 else "Bearish"
 
 
 def fetch_data() -> dict:
@@ -97,20 +124,40 @@ def fetch_data() -> dict:
             ema50 = calculate_ema(closes, 50)
             ema200 = calculate_ema(closes, 200)
 
+            signal = evaluate_signal(price, ema50, ema200, daily_pct)
+            trend = detect_trend(ema50, ema200)
+
+            dist50 = ((price - ema50) / ema50) * 100 if ema50 else None
+            dist200 = ((price - ema200) / ema200) * 100 if ema200 else None
+
             results[symbol] = {
                 "price": price,
                 "daily_pct": daily_pct,
                 "ema50": ema50,
                 "ema200": ema200,
+                "dist50": dist50,
+                "dist200": dist200,
+                "signal": signal,
+                "trend": trend,
             }
         except Exception:
             continue
     return results
 
 
+def build_tooltip(sym: str, d: dict) -> str:
+    parts = [LABELS[sym]]
+    if d["ema50"] is not None:
+        parts.append(f"50 EMA: ${d['ema50']:.2f} ({d['dist50']:+.1f}%)")
+    if d["ema200"] is not None:
+        parts.append(f"200 EMA: ${d['ema200']:.2f} ({d['dist200']:+.1f}%)")
+    parts.append(f"Trend: {d['trend']}")
+    return " | ".join(parts)
+
+
 def render(results: dict) -> None:
     if not results:
-        print("📊 N/A")
+        print("N/A | sfimage=chart.line.uptrend.xyaxis")
         print("---")
         print("Market data unavailable")
         print("---")
@@ -123,46 +170,38 @@ def render(results: dict) -> None:
         pct = d["daily_pct"]
         sign = "+" if pct >= 0 else ""
         color = "green" if pct >= 0 else "red"
-        print(f"📊 {hero} {sign}{pct:.1f}% | color={color}")
+        print(f"{hero} {sign}{pct:.1f}% | sfimage=chart.line.uptrend.xyaxis color={color}")
     else:
-        print(f"📊 {hero} N/A")
+        print(f"{hero} N/A | sfimage=chart.line.uptrend.xyaxis")
 
     print("---")
+
+    ranked = sorted(
+        ((sym, results[sym]) for sym in SYMBOLS if sym in results),
+        key=lambda pair: SIGNAL_PRIORITY.get(pair[1]["signal"], 99),
+    )
+
+    for sym, d in ranked:
+        price = d["price"]
+        pct = d["daily_pct"]
+        signal = d["signal"]
+
+        sign = "+" if pct >= 0 else ""
+        sig_color = SIGNAL_COLORS.get(signal, "")
+        color_attr = f" color={sig_color}" if sig_color else ""
+        tooltip = build_tooltip(sym, d)
+
+        print(
+            f"{signal}  {sym}  ${price:.2f}  {sign}{pct:.1f}%"
+            f' | href={YAHOO_URL}/{sym} tooltip="{tooltip}"{color_attr}'
+        )
 
     for sym in SYMBOLS:
         if sym not in results:
-            print(f"{sym} ({LABELS[sym]}) — unavailable")
-            continue
-
-        d = results[sym]
-        price = d["price"]
-        pct = d["daily_pct"]
-        ema50 = d["ema50"]
-        ema200 = d["ema200"]
-
-        sign = "+" if pct >= 0 else ""
-        row_color = "green" if pct >= 0 else "red"
-        print(
-            f"{sym} ({LABELS[sym]})  ${price:.2f}  {sign}{pct:.1f}% | color={row_color}"
-        )
-
-        if ema50 is not None:
-            dist50 = ((price - ema50) / ema50) * 100
-            print(f"--50 EMA: ${ema50:.2f}  ({dist50:+.1f}%)")
-        else:
-            print("--50 EMA: insufficient data")
-
-        if ema200 is not None:
-            dist200 = ((price - ema200) / ema200) * 100
-            print(f"--200 EMA: ${ema200:.2f}  ({dist200:+.1f}%)")
-        else:
-            print("--200 EMA: insufficient data")
-
-        signal, sig_color = evaluate_signal(price, ema50, ema200, pct)
-        color_attr = f" color={sig_color}" if sig_color else ""
-        print(f"--Signal: {signal} |{color_attr}")
+            print(f"—  {sym}  unavailable | href={YAHOO_URL}/{sym}")
 
     print("---")
+    print(f"Updated {datetime.datetime.now().strftime('%I:%M %p')}")
     print("Refresh | refresh=true")
 
 
@@ -179,7 +218,7 @@ def main() -> None:
             cached = json.loads(CACHE_FILE.read_text())
             render(cached)
         except Exception:
-            print("📊 ⚠️")
+            print("⚠️ | sfimage=chart.line.uptrend.xyaxis")
             print("---")
             print(f"Error: {exc}")
             print("---")
