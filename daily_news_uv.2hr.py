@@ -4,6 +4,7 @@
 # dependencies = [
 #     "aiohttp>=3.8.0",
 #     "beautifulsoup4>=4.9.0",
+#     "feedparser>=6.0.0",
 #     "requests>=2.25.0",
 # ]
 # ///
@@ -12,7 +13,7 @@
 # <swiftbar.version>v1.8</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
-# <swiftbar.desc>Combines Techmeme, Hacker News, Lobste.rs, STLToday, BND, STL PR, MidAmerica Airport, and Mascoutah News in one dropdown</swiftbar.desc>
+# <swiftbar.desc>Combines Techmeme, Hacker News, Lobste.rs, Simon Willison, STLToday, BND, STL PR, MidAmerica Airport, and Mascoutah News in one dropdown</swiftbar.desc>
 # <swiftbar.dependencies>uv, beautifulsoup4, aiohttp, requests</swiftbar.dependencies>
 
 import asyncio
@@ -22,6 +23,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import aiohttp
+import feedparser
 import requests
 from aiohttp import ClientTimeout
 from bs4 import BeautifulSoup, Tag
@@ -134,6 +136,7 @@ LOBSTERS_URL = "https://lobste.rs"
 STLTODAY_URL = "https://www.stltoday.com"
 BND_URL = "https://www.bnd.com"
 STLPR_URL = "https://www.stlpr.org"
+SIMONWILLISON_FEED = "https://simonwillison.net/atom/everything/"
 MIDAMERICA_API = "https://ws.iadsnetwork.com/rssfeeds.svc/GetRSSItems"
 REQUEST_TIMEOUT = 10
 MAX_HEADLINES = 15
@@ -722,6 +725,35 @@ async def fetch_stlpr(buffer=None):
         buffer.write(f"--⚠️ Error fetching STL PR: {e} | color=red\n")
 
 
+async def fetch_simonwillison(buffer=None):
+    if buffer is None:
+        buffer = StringIO()
+
+    buffer.write(f"Simon Willison | href=https://simonwillison.net/ color=#F5A623\n")
+
+    def sync_fetch():
+        feed = feedparser.parse(SIMONWILLISON_FEED)
+        entries = []
+        for entry in feed.entries[:MAX_HEADLINES]:
+            title = entry.get("title", "Untitled")
+            link = entry.get("link", "")
+            tags = [t.get("term", "") for t in entry.get("tags", [])]
+            summary_html = entry.get("summary", "")
+            summary_text = BeautifulSoup(summary_html, "html.parser").get_text(" ", strip=True)[:200]
+            entries.append((title, link, tags, summary_text))
+        return entries
+
+    try:
+        entries = await asyncio.to_thread(sync_fetch)
+        for title, link, tags, summary_text in entries:
+            display_tags = tags[:3]
+            full_tags = ", ".join(tags) if tags else ""
+            tooltip = f"Tags: {full_tags}\n\n{summary_text}..." if full_tags else summary_text
+            buffer.write(format_headline(title, link, tags=display_tags, summary=tooltip))
+    except Exception as e:
+        buffer.write(f"--⚠️ Error fetching Simon Willison: {e} | color=red\n")
+
+
 async def fetch_midamerica(buffer=None):
     if buffer is None:
         buffer = StringIO()
@@ -845,10 +877,11 @@ async def main():
 
     start = time.time()
 
-    techmeme, hn, lobsters, stltoday, bnd, stlpr, midamerica, mascoutah = await asyncio.gather(
+    techmeme, hn, lobsters, simonwillison, stltoday, bnd, stlpr, midamerica, mascoutah = await asyncio.gather(
         fetch_and_buffer(fetch_techmeme),
         fetch_and_buffer(fetch_hnt),
         fetch_and_buffer(fetch_lobsters),
+        fetch_and_buffer(fetch_simonwillison),
         fetch_and_buffer(fetch_stltoday),
         fetch_and_buffer(fetch_bnd),
         fetch_and_buffer(fetch_stlpr),
@@ -860,6 +893,7 @@ async def main():
     print(techmeme)
     print(hn)
     print(lobsters)
+    print(simonwillison)
     print(stltoday)
     print(bnd)
     print(stlpr)
