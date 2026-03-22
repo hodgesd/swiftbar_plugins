@@ -255,6 +255,8 @@ def format_headline(title, url, tags=None, summary=None):
     tooltip_text = tooltip_text.replace('"', '\\"')
     # 3. Escape pipe characters (they have special meaning in SwiftBar)
     tooltip_text = tooltip_text.replace('|', '\\|')
+    # 4. Escape newlines (raw newlines break SwiftBar's line-based parsing)
+    tooltip_text = tooltip_text.replace('\n', '\\n')
 
     # Escape title too for any pipes or special chars
     full_title = full_title.replace('|', ' ')  # Remove pipes from display title
@@ -736,7 +738,7 @@ async def fetch_simonwillison(buffer=None):
         entries = []
         for entry in feed.entries[:MAX_HEADLINES]:
             title = entry.get("title", "Untitled")
-            link = entry.get("link", "")
+            link = entry.get("link", "").split("#")[0]
             tags = [t.get("term", "") for t in entry.get("tags", [])]
             summary_html = entry.get("summary", "")
             summary_text = BeautifulSoup(summary_html, "html.parser").get_text(" ", strip=True)[:200]
@@ -748,7 +750,7 @@ async def fetch_simonwillison(buffer=None):
         for title, link, tags, summary_text in entries:
             display_tags = tags[:3]
             full_tags = ", ".join(tags) if tags else ""
-            tooltip = f"Tags: {full_tags}\n\n{summary_text}..." if full_tags else summary_text
+            tooltip = f"Tags: {full_tags} -- {summary_text}..." if full_tags else summary_text
             buffer.write(format_headline(title, link, tags=display_tags, summary=tooltip))
     except Exception as e:
         buffer.write(f"--⚠️ Error fetching Simon Willison: {e} | color=red\n")
