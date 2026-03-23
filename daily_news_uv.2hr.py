@@ -741,16 +741,16 @@ async def fetch_simonwillison(buffer=None):
             link = entry.get("link", "").split("#")[0]
             tags = [t.get("term", "") for t in entry.get("tags", [])]
             summary_html = entry.get("summary", "")
-            summary_text = BeautifulSoup(summary_html, "html.parser").get_text(" ", strip=True)[:200]
+            summary_text = BeautifulSoup(summary_html, "html.parser").get_text(" ", strip=True)
             entries.append((title, link, tags, summary_text))
         return entries
 
     try:
         entries = await asyncio.to_thread(sync_fetch)
         for title, link, tags, summary_text in entries:
-            display_tags = tags[:3]
+            display_tags = tags[:2]
             full_tags = ", ".join(tags) if tags else ""
-            tooltip = f"Tags: {full_tags} -- {summary_text}..." if full_tags else summary_text
+            tooltip = f"Tags: {full_tags} -- {summary_text}" if full_tags else summary_text
             buffer.write(format_headline(title, link, tags=display_tags, summary=tooltip))
     except Exception as e:
         buffer.write(f"--⚠️ Error fetching Simon Willison: {e} | color=red\n")
