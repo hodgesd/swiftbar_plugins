@@ -10,7 +10,7 @@
 # ///
 
 # <swiftbar.title>Combined Tech News</swiftbar.title>
-# <swiftbar.version>v1.8</swiftbar.version>
+# <swiftbar.version>v1.9</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Combines Techmeme, Hacker News, Lobste.rs, Simon Willison, STLToday, BND, STL PR, MidAmerica Airport, and Mascoutah News in one dropdown</swiftbar.desc>
@@ -128,11 +128,68 @@ def format_hn_tooltip(summary: str) -> str:
     return '\n\n'.join(formatted_paras)
 
 
+def condense_hncompanion_summary(md: str) -> str:
+    """Condense HN Companion's structured markdown summary into tooltip-sized plain text."""
+    def strip_md(text: str) -> str:
+        text = re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', text)  # [text](url) -> text
+        text = text.replace('**', '').replace('`', '')
+        return re.sub(r'\s+', ' ', text).strip()
+
+    # Split the markdown into sections keyed by heading
+    sections = {}
+    current = None
+    for line in md.splitlines():
+        heading = re.match(r'#+\s+(.+)', line)
+        if heading:
+            current = heading.group(1).strip().lower()
+            sections[current] = []
+        elif current is not None:
+            sections[current].append(line)
+
+    overview = strip_md(' '.join(sections.get('overview', [])))
+
+    # Themes appear as "*   **Theme Name:** description" (same line) or with the
+    # description indented on following lines — handle both
+    theme_lines = []
+    themes_raw = '\n'.join(sections.get('main themes & key insights', []))
+    for match in re.finditer(
+        r'^\s*[*-]\s+\*\*(.+?)\*\*:?\s*(.*?)(?=^\s*[*-]\s+\*\*|\Z)',
+        themes_raw, re.M | re.S,
+    ):
+        name = strip_md(match.group(1)).rstrip(':')
+        desc = strip_md(match.group(2))
+        first_sentence = re.split(r'(?<=[.!?])\s', desc)[0] if desc else ''
+        theme_lines.append(f'• {name} — {first_sentence}' if first_sentence else f'• {name}')
+
+    parts = [p for p in (overview, '\n'.join(theme_lines)) if p]
+    condensed = '\n\n'.join(parts) if parts else strip_md(md)
+
+    if len(condensed) > 1200:
+        condensed = condensed[:1200].rsplit(' ', 1)[0] + '…'
+    return condensed
+
+
+async def fetch_hncompanion_summary(session: aiohttp.ClientSession, story_id: str) -> Optional[str]:
+    """Fetch a free cached AI summary from HN Companion. Returns condensed text, or None on miss."""
+    try:
+        async with session.get(f"{HNCOMPANION_API}{story_id}") as response:
+            if response.status != 200:
+                return None  # 404 = story not in their cache; expected
+            data = await response.json()
+            summary = data.get('summary')
+            if not summary:
+                return None
+            return condense_hncompanion_summary(summary)
+    except Exception:
+        return None
+
+
 
 # Constants
 TECHMEME_URL = "https://www.techmeme.com/"
 HN_URL = "https://news.ycombinator.com/"
 LOBSTERS_URL = "https://lobste.rs"
+HNCOMPANION_API = "https://app.hncompanion.com/api/posts/"
 STLTODAY_URL = "https://www.stltoday.com"
 BND_URL = "https://www.bnd.com"
 STLPR_URL = "https://www.stlpr.org"
@@ -366,63 +423,87 @@ async def fetch_hnt(buffer=None):
 
     try:
         timeout = ClientTimeout(total=REQUEST_TIMEOUT)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
             async with session.get(algolia_url) as response:
                 response.raise_for_status()
                 data = await response.json()
 
-                # Track consecutive timeouts for early bailout on bad connections
-                consecutive_timeouts = 0
-                max_consecutive_timeouts = 3  # Stop trying after 3 consecutive timeouts
+            hits = data.get("hits", [])[:MAX_HEADLINES]
 
-                for hit in data.get("hits", [])[:MAX_HEADLINES]:
-                    title = hit.get("title", "Untitled")
-                    story_id = hit.get("objectID")
-                    points = hit.get("points", 0)
-                    num_comments = hit.get("num_comments", 0)
-                    author = hit.get("author", "unknown")
+            # Layered summary lookup: local cache -> HN Companion API -> llm/Gemini fallback
+            summaries = {}
+            uncached_ids = []
+            for hit in hits:
+                story_id = hit.get("objectID")
+                cached = get_cached_summary(story_id)
+                if cached:
+                    summaries[story_id] = cached
+                else:
+                    uncached_ids.append(story_id)
 
-                    # Format title with upvotes and comments
-                    formatted_title = f"[{points}↑] {title} ({num_comments}􀌪)"
+            if uncached_ids:
+                companion_results = await asyncio.gather(
+                    *(fetch_hncompanion_summary(session, sid) for sid in uncached_ids)
+                )
+                for sid, condensed in zip(uncached_ids, companion_results):
+                    if condensed:
+                        summaries[sid] = condensed
+                        save_summary_cache(sid, condensed)
 
-                    # Fetch discussion summary from LLM with timeout protection
-                    # Skip LLM calls if we've had too many consecutive timeouts (bad connection)
-                    if consecutive_timeouts >= max_consecutive_timeouts:
+            # Track consecutive timeouts for early bailout on bad connections
+            consecutive_timeouts = 0
+            max_consecutive_timeouts = 3  # Stop trying after 3 consecutive timeouts
+
+            for hit in hits:
+                title = hit.get("title", "Untitled")
+                story_id = hit.get("objectID")
+                points = hit.get("points", 0)
+                num_comments = hit.get("num_comments", 0)
+                author = hit.get("author", "unknown")
+
+                # Format title with upvotes and comments
+                formatted_title = f"[{points}↑] {title} ({num_comments}􀌪)"
+
+                if story_id in summaries:
+                    summary = summaries[story_id]
+                # Fetch discussion summary from LLM with timeout protection
+                # Skip LLM calls if we've had too many consecutive timeouts (bad connection)
+                elif consecutive_timeouts >= max_consecutive_timeouts:
+                    summary = f"{num_comments} comments"
+                else:
+                    try:
+                        summary = await asyncio.wait_for(
+                            asyncio.to_thread(get_hn_discussion_summary, story_id),
+                            timeout=18.0,  # Allow time for 15s subprocess + overhead
+                        )
+                        # Reset timeout counter on success
+                        if summary != "See HN discussion":
+                            consecutive_timeouts = 0
+                        else:
+                            consecutive_timeouts += 1
+                    except asyncio.TimeoutError:
+                        consecutive_timeouts += 1
                         summary = f"{num_comments} comments"
-                    else:
-                        try:
-                            summary = await asyncio.wait_for(
-                                asyncio.to_thread(get_hn_discussion_summary, story_id),
-                                timeout=18.0,  # Allow time for 15s subprocess + overhead
-                            )
-                            # Reset timeout counter on success
-                            if summary != "See HN discussion":
-                                consecutive_timeouts = 0
-                            else:
-                                consecutive_timeouts += 1
-                        except asyncio.TimeoutError:
-                            consecutive_timeouts += 1
-                            summary = f"{num_comments} comments"
-                        except Exception:
-                            consecutive_timeouts += 1
-                            summary = f"{num_comments} comments"
+                    except Exception:
+                        consecutive_timeouts += 1
+                        summary = f"{num_comments} comments"
 
-                    # Format summary with visual structure, then escape special characters
-                    formatted_summary = format_hn_tooltip(summary)
-                    tooltip_text = (
-                        formatted_summary
-                        .replace("\\", "\\\\")  # Escape backslashes first
-                        .replace("\n", "\\n")   # Convert newlines to literal \n for SwiftBar
-                        .replace('"', '\\"')    # Escape quotes
-                        .replace("|", "\\|")    # Escape pipes
-                    )
-                    formatted_title_escaped = formatted_title.replace("|", " ").replace(
-                        '"', '\\"'
-                    )
+                # Format summary with visual structure, then escape special characters
+                formatted_summary = format_hn_tooltip(summary)
+                tooltip_text = (
+                    formatted_summary
+                    .replace("\\", "\\\\")  # Escape backslashes first
+                    .replace("\n", "\\n")   # Convert newlines to literal \n for SwiftBar
+                    .replace('"', '\\"')    # Escape quotes
+                    .replace("|", "\\|")    # Escape pipes
+                )
+                formatted_title_escaped = formatted_title.replace("|", " ").replace(
+                    '"', '\\"'
+                )
 
-                    buffer.write(
-                        f'-- {formatted_title_escaped} | href={HN_URL}item?id={story_id} tooltip="{tooltip_text}" trim=false\n'
-                    )
+                buffer.write(
+                    f'-- {formatted_title_escaped} | href={HN_URL}item?id={story_id} tooltip="{tooltip_text}" trim=false\n'
+                )
     except Exception as e:
         buffer.write(f"-- Error fetching HN: {e} | color=red\n")
 
