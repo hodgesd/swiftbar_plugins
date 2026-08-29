@@ -438,7 +438,14 @@ async def fetch_hn_topic(session, queries, max_items=MAX_TOPIC_HEADLINES):
                 hits_by_id.setdefault(hit.get('objectID'), hit)
         except Exception:
             continue
-    hits = sorted(hits_by_id.values(), key=lambda h: h.get('created_at_i', 0), reverse=True)
+    # Dedupe reposts: the same title submitted as separate stories — keep the highest-scoring
+    hits_by_title = {}
+    for hit in hits_by_id.values():
+        key = re.sub(r'\W+', ' ', hit.get('title', '').lower()).strip()
+        best = hits_by_title.get(key)
+        if best is None or (hit.get('points', 0) or 0) > (best.get('points', 0) or 0):
+            hits_by_title[key] = hit
+    hits = sorted(hits_by_title.values(), key=lambda h: h.get('created_at_i', 0), reverse=True)
     return hits[:max_items]
 
 
