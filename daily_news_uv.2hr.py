@@ -10,10 +10,10 @@
 # ///
 
 # <swiftbar.title>Combined Tech News</swiftbar.title>
-# <swiftbar.version>v1.9</swiftbar.version>
+# <swiftbar.version>v2.0</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
-# <swiftbar.desc>Combines Techmeme, Hacker News, Lobste.rs, Simon Willison, STLToday, BND, STL PR, MidAmerica Airport, and Mascoutah News in one dropdown</swiftbar.desc>
+# <swiftbar.desc>Combines Techmeme, Hacker News, Lobste.rs, Simon Willison, STLToday, BND, STL PR, MLX, Agentic AI, Home Lab, NBA, and Fitness 50+ in one dropdown</swiftbar.desc>
 # <swiftbar.dependencies>uv, beautifulsoup4, aiohttp, requests</swiftbar.dependencies>
 
 import asyncio
@@ -194,9 +194,10 @@ STLTODAY_URL = "https://www.stltoday.com"
 BND_URL = "https://www.bnd.com"
 STLPR_URL = "https://www.stlpr.org"
 SIMONWILLISON_FEED = "https://simonwillison.net/atom/everything/"
-MIDAMERICA_API = "https://ws.iadsnetwork.com/rssfeeds.svc/GetRSSItems"
+ALGOLIA_SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date"
 REQUEST_TIMEOUT = 10
 MAX_HEADLINES = 15
+MAX_TOPIC_HEADLINES = 8  # Smaller cap for the topic-interest sections
 TRIM_LENGTH = 100  # Character limit for headlines
 
 # STLToday configuration
@@ -375,6 +376,115 @@ def format_stlpr_headline(article: Article) -> str:
     # Escape quotes in tooltip
     tooltip_text = tooltip_text.replace('\\', '\\\\').replace('"', '\\"')
     return f"-- {display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
+
+
+async def fetch_rss_section(buffer, title, home_url, color, feeds, max_items=MAX_TOPIC_HEADLINES, exclude=None):
+    """Render a section from one or more RSS/Atom feeds, merged newest-first.
+
+    feeds: list of (feed_url, tag) tuples; a failing feed is skipped, not fatal.
+    exclude: optional regex — entries whose title matches are skipped (feed boilerplate).
+    """
+    buffer.write(f"{title} | href={home_url} color={color}\n")
+
+    def sync_fetch():
+        items = []
+        for feed_url, tag in feeds:
+            try:
+                feed = feedparser.parse(feed_url)
+                for entry in feed.entries:
+                    if exclude and re.search(exclude, entry.get('title', '')):
+                        continue
+                    published = entry.get('published_parsed') or entry.get('updated_parsed')
+                    entry_title = entry.get('title', 'Untitled')
+                    link = entry.get('link', '')
+                    summary_html = entry.get('summary', '')
+                    summary_text = BeautifulSoup(summary_html, 'html.parser').get_text(' ', strip=True)
+                    items.append((published or time.gmtime(0), entry_title, link, tag, summary_text))
+            except Exception:
+                continue
+        items.sort(key=lambda item: item[0], reverse=True)
+        return items[:max_items]
+
+    try:
+        items = await asyncio.to_thread(sync_fetch)
+        if not items:
+            buffer.write("--⚠️ No articles available | color=gray\n")
+            return
+        for _, entry_title, link, tag, summary_text in items:
+            buffer.write(format_headline(entry_title, link, tags=[tag], summary=summary_text or None))
+    except Exception as e:
+        buffer.write(f"--⚠️ Error fetching {title}: {e} | color=red\n")
+
+
+async def fetch_hn_topic(session, queries, max_items=MAX_TOPIC_HEADLINES):
+    """Search HN story titles via Algolia for exact-phrase queries; dedupe, newest first."""
+    hits_by_id = {}
+    for query in queries:
+        try:
+            params = {
+                'query': f'"{query}"',
+                'tags': 'story',
+                'restrictSearchableAttributes': 'title',
+                'advancedSyntax': 'true',
+                'numericFilters': 'points>5',
+                'hitsPerPage': str(max_items),
+            }
+            async with session.get(ALGOLIA_SEARCH_URL, params=params) as response:
+                response.raise_for_status()
+                data = await response.json()
+            for hit in data.get('hits', []):
+                hits_by_id.setdefault(hit.get('objectID'), hit)
+        except Exception:
+            continue
+    hits = sorted(hits_by_id.values(), key=lambda h: h.get('created_at_i', 0), reverse=True)
+    return hits[:max_items]
+
+
+async def write_hn_topic_items(buffer, session, hits):
+    """Write HN search hits as menu lines, with HN Companion summary tooltips where cached.
+
+    No llm/Gemini fallback here — niche stories are rarely worth a paid call;
+    misses fall back to a points/comments tooltip.
+    """
+    summaries = {}
+    uncached_ids = []
+    for hit in hits:
+        story_id = hit.get('objectID')
+        cached = get_cached_summary(story_id)
+        if cached:
+            summaries[story_id] = cached
+        else:
+            uncached_ids.append(story_id)
+
+    if uncached_ids:
+        companion_results = await asyncio.gather(
+            *(fetch_hncompanion_summary(session, sid) for sid in uncached_ids)
+        )
+        for sid, condensed in zip(uncached_ids, companion_results):
+            if condensed:
+                summaries[sid] = condensed
+                save_summary_cache(sid, condensed)
+
+    for hit in hits:
+        story_id = hit.get('objectID')
+        title = hit.get('title', 'Untitled')
+        points = hit.get('points', 0) or 0
+        num_comments = hit.get('num_comments', 0) or 0
+        formatted_title = f"[{points}↑] {title} ({num_comments}􀌪)"
+
+        summary = summaries.get(story_id, f"{points} points, {num_comments} comments")
+        formatted_summary = format_hn_tooltip(summary)
+        tooltip_text = (
+            formatted_summary
+            .replace("\\", "\\\\")
+            .replace("\n", "\\n")
+            .replace('"', '\\"')
+            .replace("|", "\\|")
+        )
+        formatted_title_escaped = formatted_title.replace("|", " ").replace('"', '\\"')
+        buffer.write(
+            f'-- {formatted_title_escaped} | href={HN_URL}item?id={story_id} tooltip="{tooltip_text}" trim=false\n'
+        )
 
 
 async def fetch_techmeme(buffer=None):
@@ -837,120 +947,101 @@ async def fetch_simonwillison(buffer=None):
         buffer.write(f"--⚠️ Error fetching Simon Willison: {e} | color=red\n")
 
 
-async def fetch_midamerica(buffer=None):
+async def fetch_mlx(buffer=None):
     if buffer is None:
         buffer = StringIO()
 
-    buffer.write(f"MidAmerica Airport | href=https://www.heraldpubs.com/mid-america-airport/ color=#43A047\n")
+    buffer.write(f"MLX | href=https://github.com/ml-explore/mlx color=#0071E3\n")
 
     try:
         timeout = ClientTimeout(total=REQUEST_TIMEOUT)
         async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
-            params = {
-                'type': 'keyword',
-                'query': 'Mid America Airport St. Louis',
-                'count': str(MAX_HEADLINES)
-            }
-            async with session.get(MIDAMERICA_API, params=params) as response:
-                response.raise_for_status()
-                data = await response.json()
+            hits = await fetch_hn_topic(session, ["mlx"])
+            await write_hn_topic_items(buffer, session, hits)
 
-                items = data.get('d', [])
-                if not items:
-                    buffer.write("--⚠️ No articles available | color=gray\n")
-                    return
+        def sync_releases():
+            feed = feedparser.parse("https://github.com/ml-explore/mlx/releases.atom")
+            return [(entry.get('title', 'Untitled'), entry.get('link', '')) for entry in feed.entries[:3]]
 
-                for item in items:
-                    try:
-                        # Parse HTML content to extract link and title
-                        content_html = item.get('content', '')
-                        if not content_html:
-                            continue
-
-                        soup = BeautifulSoup(content_html, 'html.parser')
-                        link_elem = soup.find('a')
-                        if not link_elem:
-                            continue
-
-                        title = link_elem.get_text(strip=True)
-                        url = link_elem.get('href', '')
-
-                        # Extract source from font tag
-                        source_elem = soup.find('font')
-                        source = source_elem.get_text(strip=True) if source_elem else ''
-
-                        # Format headline with source as category
-                        display_title = f"[{source}] {title}" if source else title
-
-                        # Escape special characters
-                        display_title = display_title.replace('|', ' ').replace('"', '\\"')
-                        tooltip_text = title.replace('\\', '\\\\').replace('"', '\\"')
-
-                        buffer.write(f'-- {display_title} | href={url} tooltip="{tooltip_text}"\n')
-
-                    except Exception:
-                        continue
-
+        for release_title, release_link in await asyncio.to_thread(sync_releases):
+            buffer.write(format_headline(f"mlx {release_title}", release_link, tags=["release"]))
     except Exception as e:
-        buffer.write(f"--⚠️ Error fetching MidAmerica Airport: {e} | color=red\n")
+        buffer.write(f"--⚠️ Error fetching MLX: {e} | color=red\n")
 
 
-async def fetch_mascoutah(buffer=None):
+async def fetch_hermes(buffer=None):
     if buffer is None:
         buffer = StringIO()
 
-    buffer.write(f"Mascoutah News | href=https://www.heraldpubs.com/ color=#8E24AA\n")
+    buffer.write(f"Agentic AI | href=https://nousresearch.com color=#7C4DFF\n")
 
     try:
         timeout = ClientTimeout(total=REQUEST_TIMEOUT)
         async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
-            params = {
-                'type': 'keyword',
-                'query': 'Mascoutah',
-                'count': str(MAX_HEADLINES)
-            }
-            async with session.get(MIDAMERICA_API, params=params) as response:
-                response.raise_for_status()
-                data = await response.json()
+            hits = await fetch_hn_topic(session, ["hermes", "nous research"])
+            await write_hn_topic_items(buffer, session, hits)
 
-                items = data.get('d', [])
-                if not items:
-                    buffer.write("--⚠️ No articles available | color=gray\n")
-                    return
+        def sync_hf_blog():
+            feed = feedparser.parse("https://huggingface.co/blog/feed.xml")
+            entries = []
+            for entry in feed.entries[:5]:
+                summary_html = entry.get('summary', '')
+                summary_text = BeautifulSoup(summary_html, 'html.parser').get_text(' ', strip=True)
+                entries.append((entry.get('title', 'Untitled'), entry.get('link', ''), summary_text))
+            return entries
 
-                for item in items:
-                    try:
-                        # Parse HTML content to extract link and title
-                        content_html = item.get('content', '')
-                        if not content_html:
-                            continue
-
-                        soup = BeautifulSoup(content_html, 'html.parser')
-                        link_elem = soup.find('a')
-                        if not link_elem:
-                            continue
-
-                        title = link_elem.get_text(strip=True)
-                        url = link_elem.get('href', '')
-
-                        # Extract source from font tag
-                        source_elem = soup.find('font')
-                        source = source_elem.get_text(strip=True) if source_elem else ''
-
-                        # Format headline with source as category
-                        display_title = f"[{source}] {title}" if source else title
-
-                        # Escape special characters
-                        display_title = display_title.replace('|', ' ').replace('"', '\\"')
-                        tooltip_text = title.replace('\\', '\\\\').replace('"', '\\"')
-
-                        buffer.write(f'-- {display_title} | href={url} tooltip="{tooltip_text}"\n')
-
-                    except Exception:
-                        continue
-
+        for hf_title, hf_link, hf_summary in await asyncio.to_thread(sync_hf_blog):
+            buffer.write(format_headline(hf_title, hf_link, tags=["HF"], summary=hf_summary or None))
     except Exception as e:
-        buffer.write(f"--⚠️ Error fetching Mascoutah News: {e} | color=red\n")
+        buffer.write(f"--⚠️ Error fetching Agentic AI: {e} | color=red\n")
+
+
+async def fetch_homelab(buffer=None):
+    if buffer is None:
+        buffer = StringIO()
+
+    await fetch_rss_section(
+        buffer, "Home Lab", "https://www.servethehome.com", "#607D8B",
+        [
+            ("https://www.servethehome.com/feed/", "STH"),
+            ("https://selfh.st/rss/", "selfh.st"),
+        ],
+    )
+
+    try:
+        timeout = ClientTimeout(total=REQUEST_TIMEOUT)
+        async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
+            hits = await fetch_hn_topic(session, ["homelab"], max_items=5)
+            await write_hn_topic_items(buffer, session, hits)
+    except Exception:
+        pass  # RSS half of the section already rendered
+
+
+async def fetch_nba(buffer=None):
+    if buffer is None:
+        buffer = StringIO()
+
+    await fetch_rss_section(
+        buffer, "NBA", "https://www.espn.com/nba/", "#C9082A",
+        [
+            ("https://www.espn.com/espn/rss/nba/news", "ESPN"),
+            ("https://basketball.realgm.com/rss/wiretap/0/0.xml", "RealGM"),
+        ],
+        exclude=r"Get Your Latest NBA News",
+    )
+
+
+async def fetch_fitness(buffer=None):
+    if buffer is None:
+        buffer = StringIO()
+
+    await fetch_rss_section(
+        buffer, "Fitness 50+", "https://www.strongerbyscience.com", "#E91E63",
+        [
+            ("https://www.strongerbyscience.com/feed/", "SBS"),
+            ("https://peterattiamd.com/feed/", "Attia"),
+        ],
+    )
 
 
 async def main():
@@ -960,7 +1051,7 @@ async def main():
 
     start = time.time()
 
-    techmeme, hn, lobsters, simonwillison, stltoday, bnd, stlpr, midamerica, mascoutah = await asyncio.gather(
+    sections = await asyncio.gather(
         fetch_and_buffer(fetch_techmeme),
         fetch_and_buffer(fetch_hnt),
         fetch_and_buffer(fetch_lobsters),
@@ -968,20 +1059,16 @@ async def main():
         fetch_and_buffer(fetch_stltoday),
         fetch_and_buffer(fetch_bnd),
         fetch_and_buffer(fetch_stlpr),
-        fetch_and_buffer(fetch_midamerica),
-        fetch_and_buffer(fetch_mascoutah)
+        fetch_and_buffer(fetch_mlx),
+        fetch_and_buffer(fetch_hermes),
+        fetch_and_buffer(fetch_homelab),
+        fetch_and_buffer(fetch_nba),
+        fetch_and_buffer(fetch_fitness)
     )
 
     # Print each section sequentially
-    print(techmeme)
-    print(hn)
-    print(lobsters)
-    print(simonwillison)
-    print(stltoday)
-    print(bnd)
-    print(stlpr)
-    print(midamerica)
-    print(mascoutah)
+    for section in sections:
+        print(section)
 
     end = time.time()
     print("---")
