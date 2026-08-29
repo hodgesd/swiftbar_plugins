@@ -13,7 +13,7 @@
 # <swiftbar.version>v2.0</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
-# <swiftbar.desc>Combines Techmeme, Hacker News, Lobste.rs, Simon Willison, STLToday, BND, STL PR, MLX, Agentic AI, Home Lab, NBA, and Fitness 50+ in one dropdown</swiftbar.desc>
+# <swiftbar.desc>Combines Techmeme, Hacker News, Lobste.rs, Simon Willison, STLToday, BND, STL PR, MLX, Agentic AI, Home Lab, NBA, EV/Solar, and Fitness 50+ in one dropdown</swiftbar.desc>
 # <swiftbar.dependencies>uv, beautifulsoup4, aiohttp, requests</swiftbar.dependencies>
 
 import asyncio
@@ -378,11 +378,13 @@ def format_stlpr_headline(article: Article) -> str:
     return f"-- {display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
 
 
-async def fetch_rss_section(buffer, title, home_url, color, feeds, max_items=MAX_TOPIC_HEADLINES, exclude=None):
+async def fetch_rss_section(buffer, title, home_url, color, feeds, max_items=MAX_TOPIC_HEADLINES, exclude=None,
+                            per_feed_max=None):
     """Render a section from one or more RSS/Atom feeds, merged newest-first.
 
     feeds: list of (feed_url, tag) tuples; a failing feed is skipped, not fatal.
     exclude: optional regex — entries whose title matches are skipped (feed boilerplate).
+    per_feed_max: optional cap per feed, so a high-volume source can't crowd out the others.
     """
     buffer.write(f"{title} | href={home_url} color={color}\n")
 
@@ -391,7 +393,7 @@ async def fetch_rss_section(buffer, title, home_url, color, feeds, max_items=MAX
         for feed_url, tag in feeds:
             try:
                 feed = feedparser.parse(feed_url)
-                for entry in feed.entries:
+                for entry in (feed.entries[:per_feed_max] if per_feed_max else feed.entries):
                     if exclude and re.search(exclude, entry.get('title', '')):
                         continue
                     published = entry.get('published_parsed') or entry.get('updated_parsed')
@@ -1031,6 +1033,21 @@ async def fetch_nba(buffer=None):
     )
 
 
+async def fetch_ev_solar(buffer=None):
+    if buffer is None:
+        buffer = StringIO()
+
+    await fetch_rss_section(
+        buffer, "EV / Solar", "https://electrek.co", "#2E7D32",
+        [
+            ("https://electrek.co/feed/", "Electrek"),
+            ("https://www.pv-magazine.com/feed/", "PV"),
+            ("https://www.canarymedia.com/rss", "Canary"),
+        ],
+        per_feed_max=4,
+    )
+
+
 async def fetch_fitness(buffer=None):
     if buffer is None:
         buffer = StringIO()
@@ -1063,6 +1080,7 @@ async def main():
         fetch_and_buffer(fetch_hermes),
         fetch_and_buffer(fetch_homelab),
         fetch_and_buffer(fetch_nba),
+        fetch_and_buffer(fetch_ev_solar),
         fetch_and_buffer(fetch_fitness)
     )
 
