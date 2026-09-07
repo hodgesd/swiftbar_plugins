@@ -110,8 +110,9 @@ from requests.adapters import HTTPAdapter, Retry
 # Hard cap on HN tooltip text. macOS draws NSMenu tooltips centred on the pointer and
 # never shrinks or re-anchors them, so a tooltip taller than ~2x the hovered row's distance
 # from the top of the screen is clipped. With the Hacker News section 6th in the menu,
-# ~1,200 chars (~19 wrapped lines) fits with margin; the Gemini fallback can run to 2,600.
-HN_TOOLTIP_MAX_CHARS = 1200
+# ~1,100 chars (~22 wrapped lines with one bullet per line) fits with margin; the Gemini
+# fallback can run to 2,600.
+HN_TOOLTIP_MAX_CHARS = 1100
 
 
 def cap_tooltip(text: str, max_chars: int = HN_TOOLTIP_MAX_CHARS) -> str:
@@ -130,12 +131,12 @@ def format_hn_tooltip(summary: str) -> str:
         # Single paragraph - just clean it up
         return cap_tooltip(re.sub(r'\s+', ' ', summary).strip())
 
-    # Format each paragraph with clear visual structure
-    # Clean up internal whitespace within each paragraph
+    # Format each paragraph with clear visual structure. Collapse whitespace per line,
+    # not per paragraph, so each "• Theme — ..." bullet keeps its own line in the tooltip.
     formatted_paras = []
     for para in paragraphs:
-        clean_para = re.sub(r'\s+', ' ', para).strip()
-        formatted_paras.append(clean_para)
+        lines = [re.sub(r'\s+', ' ', line).strip() for line in para.splitlines()]
+        formatted_paras.append('\n'.join(line for line in lines if line))
 
     # Join paragraphs with double newline for clear separation
     # Note: The actual newlines will be preserved during escaping
