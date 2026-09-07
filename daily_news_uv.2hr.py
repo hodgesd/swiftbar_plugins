@@ -13,7 +13,7 @@
 # <swiftbar.version>v2.0</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
-# <swiftbar.desc>Combines Techmeme, Hacker News, Lobste.rs, Simon Willison, STLToday, BND, STL PR, MLX, Agentic AI, Home Lab, NBA, EV/Solar, and Fitness 50+ in one dropdown</swiftbar.desc>
+# <swiftbar.desc>Combines STLToday, STL PR, BND, Techmeme, Lobste.rs, Hacker News, Simon Willison, MLX, Agentic AI, Home Lab, NBA, EV/Solar, and Fitness 50+ in one dropdown</swiftbar.desc>
 # <swiftbar.dependencies>uv, beautifulsoup4, aiohttp, requests</swiftbar.dependencies>
 
 import asyncio
@@ -107,6 +107,20 @@ import time
 from io import StringIO
 from requests.adapters import HTTPAdapter, Retry
 
+# Hard cap on HN tooltip text. macOS draws NSMenu tooltips centred on the pointer and
+# never shrinks or re-anchors them, so a tooltip taller than ~2x the hovered row's distance
+# from the top of the screen is clipped. With the Hacker News section 6th in the menu,
+# ~1,200 chars (~19 wrapped lines) fits with margin; the Gemini fallback can run to 2,600.
+HN_TOOLTIP_MAX_CHARS = 1200
+
+
+def cap_tooltip(text: str, max_chars: int = HN_TOOLTIP_MAX_CHARS) -> str:
+    """Truncate tooltip text at a word boundary with an ellipsis if it exceeds max_chars."""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rsplit(' ', 1)[0] + '…'
+
+
 def format_hn_tooltip(summary: str) -> str:
     """Format HN discussion summary with multiline tooltip support."""
     # Split into paragraphs
@@ -114,7 +128,7 @@ def format_hn_tooltip(summary: str) -> str:
 
     if len(paragraphs) <= 1:
         # Single paragraph - just clean it up
-        return re.sub(r'\s+', ' ', summary).strip()
+        return cap_tooltip(re.sub(r'\s+', ' ', summary).strip())
 
     # Format each paragraph with clear visual structure
     # Clean up internal whitespace within each paragraph
@@ -125,7 +139,7 @@ def format_hn_tooltip(summary: str) -> str:
 
     # Join paragraphs with double newline for clear separation
     # Note: The actual newlines will be preserved during escaping
-    return '\n\n'.join(formatted_paras)
+    return cap_tooltip('\n\n'.join(formatted_paras))
 
 
 def condense_hncompanion_summary(md: str) -> str:
@@ -1075,14 +1089,17 @@ async def main():
 
     start = time.time()
 
+    # Section order matters: a submenu opens level with its parent row, and macOS clips
+    # tooltips that extend above the screen. Hacker News carries the tallest tooltips,
+    # so it sits 6th, giving its stories enough headroom for the full summary.
     sections = await asyncio.gather(
-        fetch_and_buffer(fetch_techmeme),
-        fetch_and_buffer(fetch_hnt),
-        fetch_and_buffer(fetch_lobsters),
-        fetch_and_buffer(fetch_simonwillison),
         fetch_and_buffer(fetch_stltoday),
-        fetch_and_buffer(fetch_bnd),
         fetch_and_buffer(fetch_stlpr),
+        fetch_and_buffer(fetch_bnd),
+        fetch_and_buffer(fetch_techmeme),
+        fetch_and_buffer(fetch_lobsters),
+        fetch_and_buffer(fetch_hnt),
+        fetch_and_buffer(fetch_simonwillison),
         fetch_and_buffer(fetch_mlx),
         fetch_and_buffer(fetch_hermes),
         fetch_and_buffer(fetch_homelab),
