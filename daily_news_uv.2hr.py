@@ -111,9 +111,9 @@ from requests.adapters import HTTPAdapter, Retry
 # never shrinks or re-anchors them, so a tooltip taller than ~2x the hovered row's distance
 # from the top of the screen is clipped. With the Hacker News section 6th in the menu and
 # SwiftBar's tooltip font at 14pt (NSToolTipsFontSize), the first story has room for
-# ~19 wrapped lines of ~60 chars; 18 leaves a little margin. Trimming is line-based:
+# ~19–20 wrapped lines of ~60 chars; 20 favours keeping bullets over margin. Trimming is line-based:
 # whole trailing bullets are dropped first, so sentences are never cut mid-way.
-HN_TOOLTIP_MAX_LINES = 18
+HN_TOOLTIP_MAX_LINES = 20
 HN_TOOLTIP_WRAP_CHARS = 60
 
 
