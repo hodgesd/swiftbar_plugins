@@ -107,19 +107,50 @@ import time
 from io import StringIO
 from requests.adapters import HTTPAdapter, Retry
 
-# Hard cap on HN tooltip text. macOS draws NSMenu tooltips centred on the pointer and
+# Height budget for HN tooltips. macOS draws NSMenu tooltips centred on the pointer and
 # never shrinks or re-anchors them, so a tooltip taller than ~2x the hovered row's distance
-# from the top of the screen is clipped. With the Hacker News section 6th in the menu,
-# ~1,100 chars (~22 wrapped lines with one bullet per line) fits with margin; the Gemini
-# fallback can run to 2,600.
-HN_TOOLTIP_MAX_CHARS = 1100
+# from the top of the screen is clipped. With the Hacker News section 6th in the menu and
+# SwiftBar's tooltip font at 14pt (NSToolTipsFontSize), the first story has room for
+# ~19 wrapped lines of ~60 chars; 18 leaves a little margin. Trimming is line-based:
+# whole trailing bullets are dropped first, so sentences are never cut mid-way.
+HN_TOOLTIP_MAX_LINES = 18
+HN_TOOLTIP_WRAP_CHARS = 60
 
 
-def cap_tooltip(text: str, max_chars: int = HN_TOOLTIP_MAX_CHARS) -> str:
+def cap_tooltip(text: str, max_chars: int) -> str:
     """Truncate tooltip text at a word boundary with an ellipsis if it exceeds max_chars."""
     if len(text) <= max_chars:
         return text
     return text[:max_chars].rsplit(' ', 1)[0] + '…'
+
+
+def estimate_tooltip_lines(text: str, wrap: int = HN_TOOLTIP_WRAP_CHARS) -> int:
+    """Approximate the number of rendered tooltip lines after word wrap (blank lines count)."""
+    return sum(max(1, -(-len(line) // wrap)) for line in text.split('\n'))
+
+
+def fit_tooltip_lines(text: str, max_lines: int = HN_TOOLTIP_MAX_LINES) -> str:
+    """Trim tooltip text to roughly max_lines: drop whole trailing bullets first, then, if a
+    bullet-less summary is still too tall, truncate it at a word boundary."""
+    if estimate_tooltip_lines(text) <= max_lines:
+        return text
+
+    lines = text.split('\n')
+    dropped = 0
+    # Reserve one line for the "+N more" marker that replaces the dropped bullets
+    while lines and lines[-1].startswith('•') and estimate_tooltip_lines('\n'.join(lines)) + 1 > max_lines:
+        lines.pop()
+        dropped += 1
+    if dropped:
+        while lines and not lines[-1].strip():
+            lines.pop()
+        lines.append(f'… +{dropped} more theme{"s" if dropped > 1 else ""} on HN')
+    text = '\n'.join(lines)
+
+    # Fallback for long bullet-less summaries (e.g. the Gemini path): shave a line at a time
+    while estimate_tooltip_lines(text) > max_lines and len(text) > HN_TOOLTIP_WRAP_CHARS:
+        text = cap_tooltip(text.rstrip('…'), len(text) - HN_TOOLTIP_WRAP_CHARS)
+    return text
 
 
 def format_hn_tooltip(summary: str) -> str:
@@ -129,7 +160,7 @@ def format_hn_tooltip(summary: str) -> str:
 
     if len(paragraphs) <= 1:
         # Single paragraph - just clean it up
-        return cap_tooltip(re.sub(r'\s+', ' ', summary).strip())
+        return fit_tooltip_lines(re.sub(r'\s+', ' ', summary).strip())
 
     # Format each paragraph with clear visual structure. Collapse whitespace per line,
     # not per paragraph, so each "• Theme — ..." bullet keeps its own line in the tooltip.
@@ -140,7 +171,7 @@ def format_hn_tooltip(summary: str) -> str:
 
     # Join paragraphs with double newline for clear separation
     # Note: The actual newlines will be preserved during escaping
-    return cap_tooltip('\n\n'.join(formatted_paras))
+    return fit_tooltip_lines('\n\n'.join(formatted_paras))
 
 
 def condense_hncompanion_summary(md: str) -> str:
