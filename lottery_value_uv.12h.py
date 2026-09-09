@@ -43,6 +43,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -62,6 +63,10 @@ MEGA_API_URL = (
 )
 
 FETCH_TIMEOUT_SECONDS = 20
+COLOR_BUY = "#33aa55"
+COLOR_WARN = "#e0a020"
+COLOR_ERROR = "#cc4444"
+COLOR_MUTED = "#888888"
 FETCH_RETRY_COUNT = 1
 
 DEFAULT_CONFIG = {
@@ -77,21 +82,71 @@ DEFAULT_CONFIG = {
 CASH_RATIO_MIN = 0.30
 CASH_RATIO_MAX = 0.75
 
-# lower_tier_ev: approximate pre-tax EV of all NON-jackpot prizes per ticket.
-# An estimate, used only so the cross-game ranking is fair to Mega Millions
-# (whose $5 price includes a built-in multiplier that pays off on lower
-# tiers). The BUY trigger itself stays jackpot-only and conservative.
+# Non-jackpot prize tables as (base prize, odds "1 in N"), taken from the
+# official prize charts (powerball.com/powerball-prize-chart and
+# megamillions.com/How-to-Play, September 2026). Powerball's base $2 ticket
+# has no multiplier (Power Play is a paid add-on and is ignored). Mega
+# Millions' $5 ticket applies a random multiplier to every non-jackpot
+# prize, so its lower-tier EV is the base EV times the expected multiplier.
+POWERBALL_LOWER_TIERS = [
+    (1_000_000, 11_688_053.52),
+    (50_000, 913_129.18),
+    (100, 36_525.17),
+    (100, 14_494.11),
+    (7, 579.76),
+    (7, 701.33),
+    (4, 91.98),
+    (4, 38.32),
+]
+MEGA_LOWER_TIERS = [
+    (1_000_000, 12_629_232),
+    (10_000, 893_761),
+    (500, 38_859),
+    (200, 13_965),
+    (10, 607),
+    (10, 665),
+    (7, 86),
+    (5, 35),
+]
+# multiplier -> odds "1 in N" (the published odds sum to ~1.0008, so they are
+# normalized when the expectation is taken).
+MEGA_MULTIPLIER_ODDS = {2: 2.13, 3: 3.2, 4: 8, 5: 16, 10: 32}
+
+# Drawing schedule (weekday numbers, Monday=0) and local draw time in the
+# Eastern time zone, used only to show the next drawing in the dropdown.
+DRAW_TZ = ZoneInfo("America/New_York")
+
+
+def expected_multiplier(odds: dict[int, float]) -> float:
+    weights = {m: 1 / o for m, o in odds.items()}
+    return sum(m * w for m, w in weights.items()) / sum(weights.values())
+
+
+def lower_tier_ev(tiers: list[tuple[float, float]], multiplier: float = 1.0) -> float:
+    """Pre-tax expected value of all non-jackpot prizes for one play."""
+    return multiplier * sum(prize / odds for prize, odds in tiers)
+
+
+# lower_tier_ev feeds the total score, which both ranks the games and drives
+# the BUY trigger, so Mega Millions' $5 price (multiplier included) is judged
+# on the same per-dollar basis as Powerball's $2.
 GAME_RULES = {
     "Powerball": {
         "ticket_price": 2.0,
         "jackpot_odds": 292_201_338,
-        "lower_tier_ev": 0.32,
+        "lower_tier_ev": lower_tier_ev(POWERBALL_LOWER_TIERS),
+        "draw_days": (0, 2, 5),  # Mon, Wed, Sat
+        "draw_time": (22, 59),
         "url": POWERBALL_URL,
     },
     "Mega Millions": {
         "ticket_price": 5.0,
         "jackpot_odds": 290_472_336,
-        "lower_tier_ev": 0.90,
+        "lower_tier_ev": lower_tier_ev(
+            MEGA_LOWER_TIERS, expected_multiplier(MEGA_MULTIPLIER_ODDS)
+        ),
+        "draw_days": (1, 4),  # Tue, Fri
+        "draw_time": (23, 0),
         "url": MEGA_URL,
         # Official JSON endpoint; the homepage renders its cash value with
         # JavaScript so HTML parsing cannot see it.
@@ -126,14 +181,14 @@ class GameData:
 
     @property
     def score(self) -> float:
-        """Jackpot-only value score used for the BUY trigger. 1.00 means the
+        """Jackpot-only value score, shown for reference. 1.00 means the
         pre-tax jackpot EV equals the ticket cost."""
         return self.jackpot_ev_dollars / self.ticket_price
 
     @property
     def total_score(self) -> float:
-        """Jackpot + estimated lower-tier EV per dollar. Used only for
-        ranking the two games fairly against each other."""
+        """Jackpot + lower-tier EV per dollar of ticket price. Drives the
+        BUY trigger and the cross-game ranking."""
         return (self.jackpot_ev_dollars + self.lower_tier_ev) / self.ticket_price
 
 
@@ -329,7 +384,7 @@ async def fetch_html(
             if attempt < FETCH_RETRY_COUNT:
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
-            return "", f"Error: {type(e).__name__}"
+            return "", type(e).__name__
     return "", "Unknown error"
 
 
@@ -394,11 +449,25 @@ async def fetch_all_games() -> dict[str, GameData]:
     return games
 
 
+def next_draw(name: str, now: Optional[datetime] = None) -> datetime:
+    """Next scheduled drawing for a game, in Eastern time."""
+    rules = GAME_RULES[name]
+    now_et = (now or datetime.now(timezone.utc)).astimezone(DRAW_TZ)
+    hour, minute = rules["draw_time"]
+    for offset in range(8):
+        candidate = (now_et + timedelta(days=offset)).replace(
+            hour=hour, minute=minute, second=0, microsecond=0
+        )
+        if candidate.weekday() in rules["draw_days"] and candidate > now_et:
+            return candidate
+    raise RuntimeError(f"No drawing scheduled for {name}")
+
+
 # --- RECOMMENDATION ---
 
 
 def recommendation(game: GameData, config: dict) -> tuple[bool, str]:
-    score_ok = game.score >= float(config["buy_trigger_score"])
+    score_ok = game.total_score >= float(config["buy_trigger_score"])
     jackpot_ok = game.advertised_millions >= float(
         config["minimum_advertised_jackpot_millions"]
     )
@@ -432,11 +501,11 @@ def maybe_notify(games: dict[str, GameData], config: dict) -> None:
         return
     state["last_notification_signature"] = signature
     save_json(STATE_FILE, state)
-    best = max(triggered, key=lambda g: g.score)
+    best = max(triggered, key=lambda g: g.total_score)
     message = (
         f"{money_millions(best.advertised_millions)} advertised; "
         f"{money_millions(best.cash_millions)} cash; "
-        f"{best.score:.0%} jackpot-value score."
+        f"{best.total_score:.0%} total value score."
     )
     script = (
         f"display notification {json.dumps(message)} "
@@ -452,11 +521,12 @@ def maybe_notify(games: dict[str, GameData], config: dict) -> None:
 
 def generate_swiftbar_menu(games: dict[str, GameData], config: dict) -> None:
     valid = [g for g in games.values() if g.advertised_millions > 0]
+    failed = [g for g in games.values() if g.advertised_millions <= 0]
     any_error = any(g.fetch_error for g in games.values())
 
-    # -- MENU BAR LINE --
+    # -- MENU BAR LINE -- (SF Symbol only; color carries the state)
     if not valid:
-        print("🎟 ⚠️")
+        print(f"| sfimage=ticket sfcolor={COLOR_ERROR}")
         print("---")
         print("No jackpot data | color=#888888")
         for g in games.values():
@@ -470,8 +540,12 @@ def generate_swiftbar_menu(games: dict[str, GameData], config: dict) -> None:
     ordered = sorted(valid, key=lambda g: g.total_score, reverse=True)
     best = ordered[0]
     best_buy, _ = recommendation(best, config)
-    error_flag = " ⚠️" if any_error else ""
-    print(f"{'✅' if best_buy else '🎟'} {best.name.split()[0]}{error_flag}")
+    if best_buy:
+        print(f"| sfimage=ticket.fill sfcolor={COLOR_BUY}")
+    elif any_error:
+        print(f"| sfimage=ticket sfcolor={COLOR_WARN}")
+    else:
+        print("| sfimage=ticket")
 
     print("---")
     now = datetime.now(timezone.utc)
@@ -495,11 +569,14 @@ def generate_swiftbar_menu(games: dict[str, GameData], config: dict) -> None:
         if game.fetch_error:
             tooltip_parts.append(f"Error: {game.fetch_error}")
         tooltip = " | ".join(tooltip_parts).replace('"', "'")
-        color = " color=#33aa55" if triggered else ""
+        color = f" color={COLOR_BUY}" if triggered else ""
         print(
             f'{header} | href={game.source_url} font=Menlo-Bold '
             f'tooltip="{tooltip}"{color}'
         )
+        draw = next_draw(game.name, now)
+        print(f"--Next draw: {draw:%a %b} {draw.day}, "
+              f"{draw:%-I:%M %p} ET | font=Menlo size=12")
         print(f"--Cash value: {money_millions(game.cash_millions)} "
               f"({game.cash_ratio:.0%} of annuity) | font=Menlo size=12")
         print(f"--Jackpot EV: ${game.jackpot_ev_dollars:.2f} per "
@@ -508,17 +585,21 @@ def generate_swiftbar_menu(games: dict[str, GameData], config: dict) -> None:
               f"font=Menlo size=12")
         print(f"--Total value score: {game.total_score:.0%} "
               f"(incl. est. small prizes) | font=Menlo size=12")
-        print(f"--{reason} | size=12 color={'#33aa55' if triggered else '#888888'}")
+        print(f"--{reason} | size=12 color={COLOR_BUY if triggered else COLOR_MUTED}")
         if game.fetch_error:
             print(f"--⚠️ {game.fetch_error} (showing cached values) | "
                   f"size=11 color=#cc4444")
         print(f"--Open official page | href={game.source_url}")
 
+    for game in failed:
+        print(f"⚠️ {game.name}: no data ({game.fetch_error}) | "
+              f"href={game.source_url} font=Menlo-Bold color={COLOR_ERROR}")
+
     # -- FOOTER --
     print("---")
     print(
         f"Trigger: ≥ {money_millions(config['minimum_advertised_jackpot_millions'])} "
-        f"and ≥ {config['buy_trigger_score']:.0%} jackpot-only score | "
+        f"and ≥ {config['buy_trigger_score']:.0%} total value score | "
         f"size=11 color=#888888"
     )
     print(
@@ -527,12 +608,12 @@ def generate_swiftbar_menu(games: dict[str, GameData], config: dict) -> None:
     )
     print("Rationale | size=11 color=#888888")
     for line in (
-        "The jackpot-only score is cash jackpot ÷ odds ÷ ticket price.",
-        "It is pre-tax and ignores lower tiers and split risk, so the",
-        "70% trigger stays conservative — never a claim the ticket is",
-        "a good investment. The total score adds estimated small-prize",
-        "EV only to rank the two games fairly (MM's $5 includes a",
-        "multiplier that pays off on lower tiers). The $900M floor",
+        "The total value score is (cash jackpot ÷ odds + small-prize EV)",
+        "÷ ticket price, with small-prize EV computed from the official",
+        "prize charts (MM's $5 includes a multiplier on lower tiers).",
+        "It is pre-tax and ignores split risk, so a 70% trigger is a",
+        "relative signal — never a claim the ticket is a good investment.",
+        "The jackpot-only score is shown for reference. The $900M floor",
         "preserves the near-$1B habit. The budget cap is the most",
         "important rule: entertainment only, never chase losses.",
     ):
