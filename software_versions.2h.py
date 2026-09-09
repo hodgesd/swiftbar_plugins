@@ -49,6 +49,25 @@ SETUP
    SOFTWARE_VERSIONS_TAG env vars (SwiftBar settings panel) override the
    file.
 
+   Optional "installed" maps a watch name to where its installed version
+   can be read, so rows render as "installed → latest" when behind:
+
+     "compose_file": "/Users/me/nix-config/stacks/homelab/docker-compose.yml",
+     "installed": {
+       "Thaw appcast (Sparkle releases)": "app:Thaw",
+       "macOS 27 betas": "macos",
+       "llm CLI": "cmd:/Users/me/.local/bin/llm --version",
+       "AdGuard Home": "compose:adguard/adguardhome",
+       "NixOS release": {"type": "file", "path": "/Users/me/nix-config/flake.nix",
+                         "regex": "nixos-([0-9.]+)"}
+     }
+
+   app:<Name> reads /Applications/<Name>.app's CFBundleShortVersionString
+   (watches named after an app bundle need no mapping), macos uses sw_vers,
+   cmd: takes the last version-looking token of the command's output, and
+   compose:<image> reads the "# vX.Y.Z" comment on that image line of
+   compose_file. A watch with no source shows only the latest version.
+
 2. API key in the macOS Keychain (Settings > API in changedetection.io):
 
      security add-generic-password -U -s changedetection.io -a api -w '<key>'
@@ -71,7 +90,9 @@ Titles are managed as "<name> · <version>"; the part after the last
 import datetime
 import json
 import os
+import plistlib
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -167,6 +188,8 @@ def load_config() -> dict:
         "update_titles": bool(cfg.get("update_titles", True)),
         "keychain_service": str(cfg.get("keychain_service", "changedetection.io")),
         "keychain_account": str(cfg.get("keychain_account", "api")),
+        "installed": cfg.get("installed") or {},
+        "compose_file": str(cfg.get("compose_file", "")),
     }
 
 
@@ -303,6 +326,103 @@ def split_title(title: str) -> tuple[str, str | None]:
     return name, version
 
 
+# ─── Installed versions ──────────────────────────────────────────────────
+
+
+def _app_version(app_name: str) -> str | None:
+    path = f"/Applications/{app_name}.app/Contents/Info.plist"
+    try:
+        with open(path, "rb") as f:
+            info = plistlib.load(f)
+        v = info.get("CFBundleShortVersionString") or info.get("CFBundleVersion")
+        return str(v).strip() if v else None
+    except Exception:
+        return None
+
+
+def _run(cmd: list[str]) -> str:
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=REQUEST_TIMEOUT)
+        return (r.stdout or "") + (r.stderr or "")
+    except (subprocess.TimeoutExpired, OSError):
+        return ""
+
+
+def read_installed(spec, name: str, cfg: dict) -> tuple[str | None, str]:
+    """Resolve a watch's installed version. Returns (version, source label)."""
+    if spec is None:
+        # Zero-config default: a watch named after an app bundle.
+        return _app_version(name), f"app:{name}"
+    if isinstance(spec, dict):
+        kind = spec.get("type", "")
+        if kind == "file":
+            try:
+                text = Path(os.path.expanduser(spec["path"])).read_text()
+                m = re.search(spec["regex"], text)
+                return (m.group(1) if m else None), f"file:{Path(spec['path']).name}"
+            except Exception:
+                return None, f"file:{spec.get('path', '?')}"
+        return None, f"unknown type {kind!r}"
+    spec = str(spec)
+    if spec == "macos":
+        ver = _run(["sw_vers", "-productVersion"]).strip()
+        build = _run(["sw_vers", "-buildVersion"]).strip()
+        return (f"{ver} ({build})" if ver else None), "sw_vers"
+    if spec.startswith("app:"):
+        return _app_version(spec[4:]), spec
+    if spec.startswith("cmd:"):
+        out = _run(shlex.split(spec[4:]))
+        hits = VERSION_RE.findall(out)
+        return (hits[-1] if hits else None), spec
+    if spec.startswith("compose:"):
+        image = spec[8:]
+        try:
+            for line in Path(cfg["compose_file"]).read_text().splitlines():
+                if "image:" in line and image in line and "#" in line:
+                    m = VERSION_RE.search(line.split("#", 1)[1])
+                    return (m.group(0) if m else None), spec
+        except Exception:
+            pass
+        return None, spec
+    return None, spec
+
+
+def _version_key(v: str):
+    """(numeric tuple, is_prerelease) for ordering comparisons."""
+    v = v.strip().lower()
+    v = re.sub(r"^(version\s+|v)", "", v)
+    m = re.match(r"(\d+(?:\.\d+)*)", v)
+    nums = tuple(int(x) for x in m.group(1).split(".")) if m else ()
+    rest = v[m.end():] if m else v
+    prerelease = bool(re.search(r"(alpha|beta|rc|preview|dev)", rest))
+    return nums, prerelease
+
+
+def compare_versions(installed: str | None, latest: str | None, latest_full: str = "") -> str:
+    """'behind', 'current', 'ahead', or 'unknown'."""
+    if not installed or not latest:
+        return "unknown"
+    b_i = re.search(r"\(([0-9A-Za-z]+)\)", installed)
+    b_l = re.search(r"\(([0-9A-Za-z]+)\)", latest_full or latest)
+    if b_i and b_l:  # macOS-style build ids are the reliable comparison
+        return "current" if b_i.group(1) == b_l.group(1) else "behind"
+    ni, pi = _version_key(installed)
+    nl, pl = _version_key(latest)
+    if not ni or not nl:
+        return "current" if installed.strip().lstrip("v") == latest.strip().lstrip("v") else "unknown"
+    # Pad so 7.3 and 7.3.0 compare equal.
+    width = max(len(ni), len(nl))
+    ni += (0,) * (width - len(ni))
+    nl += (0,) * (width - len(nl))
+    if ni < nl:
+        return "behind"
+    if ni > nl:
+        return "ahead"
+    if pi and not pl:
+        return "behind"
+    return "current"
+
+
 # ─── Fetch ───────────────────────────────────────────────────────────────
 
 
@@ -326,6 +446,8 @@ def fetch_items(client: Client, cfg: dict) -> tuple[list[dict], str | None, list
         # When the current version was first observed: the last detected change,
         # or, for a watch that has never changed, its first snapshot.
         since = last_changed or (client.first_seen(uuid) if snapshot else 0)
+        installed, source = read_installed(cfg["installed"].get(name), name, cfg)
+        status = compare_versions(installed, version, first_line)
 
         new_title = f"{name}{TITLE_SEP}{version}" if version is not None else None
         if cfg["update_titles"] and new_title is not None and new_title != title.strip():
@@ -343,6 +465,9 @@ def fetch_items(client: Client, cfg: dict) -> tuple[list[dict], str | None, list
                 "first_line": first_line,
                 "last_changed": last_changed,
                 "since": since,
+                "installed": installed,
+                "source": source,
+                "status": status,
                 "last_checked": int(w.get("last_checked") or 0),
                 "last_error": w.get("last_error") or False,
                 "viewed": bool(w.get("viewed", True)),
@@ -351,7 +476,8 @@ def fetch_items(client: Client, cfg: dict) -> tuple[list[dict], str | None, list
         )
 
     debug(f"{len(items)} watches, {puts} title updates")
-    items.sort(key=lambda i: (i["since"] == 0, -i["since"], i["name"].lower()))
+    # Apps that are behind first, then everything else, newest change first.
+    items.sort(key=lambda i: (i["status"] != "behind", i["since"] == 0, -i["since"], i["name"].lower()))
     return items, tag_uuid, warnings
 
 
@@ -427,18 +553,18 @@ def render(
 ) -> None:
     now = time.time()
     base = cfg["base_url"]
-    recent_cutoff = now - cfg["recent_days"] * 86400
-    recent = sum(1 for i in items if i["last_changed"] and i["last_changed"] >= recent_cutoff)
+    behind = sum(1 for i in items if i.get("status") == "behind")
     has_error = any(i["last_error"] for i in items) or cached_at is not None
 
-    bar = str(recent) if recent else ""
+    bar = str(behind) if behind else ""
     if has_error:
         bar = f"{bar} ⚠️".strip()
     print(f"{bar} | {ICON}".strip() if bar else f"| {ICON}")
     print("---")
 
     overview = f"{base}/?tag={tag_uuid}" if tag_uuid else f"{base}/"
-    print(f"Software versions ({cfg['tag']}) | href={overview}")
+    summary = f"{behind} behind" if behind else "all current"
+    print(f"Software versions ({cfg['tag']}): {summary} | href={overview}")
 
     if not items:
         print(f"No watches tagged \"{cfg['tag']}\" | color={COLOR_DIM}")
@@ -446,13 +572,19 @@ def render(
     for i in items:
         name = esc_label(i["name"])
         version = i["version"] or "no snapshot yet"
+        status = i.get("status", "unknown")
+        installed = i.get("installed")
+        if status == "behind":
+            version = f"{installed} → {version}"
         marker = "• " if (not i["viewed"] and i["last_changed"]) else ""
         attrs = [f"href={base}/diff/{i['uuid']}"]
         if i["last_error"]:
             attrs.append(f"color={COLOR_ERROR}")
             attrs.append(f'tooltip="{esc_tooltip(str(i["last_error"]))}"')
-        elif i["last_changed"] and i["last_changed"] >= recent_cutoff:
+        elif status == "behind":
             attrs.append(f"color={COLOR_ACCENT}")
+        elif status == "unknown":
+            attrs.append(f'tooltip="{esc_tooltip("Installed version unknown (source: " + str(i.get("source")) + ")")}"')
         if i["version"] is None and i["first_line"]:
             attrs.append(f'tooltip="{esc_tooltip("Snapshot starts: " + i["first_line"])}"')
         since = i.get("since") or 0
@@ -465,6 +597,8 @@ def render(
             if i["last_changed"]
             else "not changed yet"
         )
+        inst = f"installed {installed}" if installed else "installed version unknown"
+        print(f"--{inst} ({status}, via {esc_label(str(i.get('source')))}) | color={COLOR_DIM}")
         print(f"--{changed} | color={COLOR_DIM}")
         print(f"--checked {format_ago(i['last_checked'], now)} | color={COLOR_DIM}")
         print(f"--Open diff | href={base}/diff/{i['uuid']}")
