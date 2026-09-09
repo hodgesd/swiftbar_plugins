@@ -87,7 +87,7 @@ CACHE_MAX_AGE_HOURS = 72
 TITLE_SEP = " · "
 VERSION_RE = re.compile(r"\bv?\d+\.\d+(?:\.\d+)*(?:[-+][0-9A-Za-z.]+)*(?: beta \d+)?\b")
 SKIP_LINES = {"[", "]", "{", "}"}
-ICON = "sfimage=shippingbox"
+ICON = "sfimage=app.badge"
 
 COLOR_ACCENT = "#FF9F0A"
 COLOR_ERROR = "#FF3B30"
@@ -253,6 +253,17 @@ class Client:
             return text
         return None
 
+    def first_seen(self, uuid: str) -> int:
+        """Timestamp of the oldest stored snapshot (0 if none)."""
+        status, text = self.request("GET", f"/api/v1/watch/{uuid}/history")
+        if status != 200:
+            return 0
+        try:
+            keys = [int(k) for k in json.loads(text).keys()]
+            return min(keys) if keys else 0
+        except (ValueError, AttributeError):
+            return 0
+
     def set_title(self, uuid: str, title: str) -> bool:
         status, _ = self.request("PUT", f"/api/v1/watch/{uuid}", {"title": title})
         return status == 200
@@ -277,12 +288,19 @@ def parse_version(text: str) -> tuple[str | None, str]:
 
 
 def split_title(title: str) -> tuple[str, str | None]:
-    """'Name · 1.2.3' -> ('Name', '1.2.3'); 'Name' -> ('Name', None)."""
-    if TITLE_SEP in title:
-        name, tail = title.rsplit(TITLE_SEP, 1)
-        if VERSION_RE.fullmatch(tail.strip()):
-            return name.strip(), tail.strip()
-    return title.strip(), None
+    """'Name · 1.2.3' -> ('Name', '1.2.3'); 'Name' -> ('Name', None).
+
+    Strips every trailing version segment, so a title that picked up a stale
+    duplicate ('Name · 1.2 · 1.2.3') heals back to 'Name' on the next write."""
+    name, version = title.strip(), None
+    while TITLE_SEP in name:
+        head, tail = name.rsplit(TITLE_SEP, 1)
+        if not VERSION_RE.fullmatch(tail.strip()):
+            break
+        if version is None:
+            version = tail.strip()
+        name = head.strip()
+    return name, version
 
 
 # ─── Fetch ───────────────────────────────────────────────────────────────
@@ -304,13 +322,13 @@ def fetch_items(client: Client, cfg: dict) -> tuple[list[dict], str | None, list
 
         snapshot = client.latest_snapshot(uuid)
         version, first_line = parse_version(snapshot) if snapshot else (None, "")
+        last_changed = int(w.get("last_changed") or 0)
+        # When the current version was first observed: the last detected change,
+        # or, for a watch that has never changed, its first snapshot.
+        since = last_changed or (client.first_seen(uuid) if snapshot else 0)
 
-        if (
-            cfg["update_titles"]
-            and version is not None
-            and version != stored_version
-        ):
-            new_title = f"{name}{TITLE_SEP}{version}"
+        new_title = f"{name}{TITLE_SEP}{version}" if version is not None else None
+        if cfg["update_titles"] and new_title is not None and new_title != title.strip():
             if client.set_title(uuid, new_title):
                 puts += 1
                 debug(f"title updated: {title!r} -> {new_title!r}")
@@ -323,7 +341,8 @@ def fetch_items(client: Client, cfg: dict) -> tuple[list[dict], str | None, list
                 "name": name,
                 "version": version,
                 "first_line": first_line,
-                "last_changed": int(w.get("last_changed") or 0),
+                "last_changed": last_changed,
+                "since": since,
                 "last_checked": int(w.get("last_checked") or 0),
                 "last_error": w.get("last_error") or False,
                 "viewed": bool(w.get("viewed", True)),
@@ -332,7 +351,7 @@ def fetch_items(client: Client, cfg: dict) -> tuple[list[dict], str | None, list
         )
 
     debug(f"{len(items)} watches, {puts} title updates")
-    items.sort(key=lambda i: (i["last_changed"] == 0, -i["last_changed"], i["name"].lower()))
+    items.sort(key=lambda i: (i["since"] == 0, -i["since"], i["name"].lower()))
     return items, tag_uuid, warnings
 
 
@@ -380,6 +399,11 @@ def format_ago(ts: int, now: float | None = None) -> str:
     if days < 14:
         return f"{days}d ago"
     return f"{days // 7}w ago"
+
+
+def format_date(ts: int) -> str:
+    """mm-dd-yy, the date the current version was first seen."""
+    return datetime.datetime.fromtimestamp(ts).strftime("%m-%d-%y")
 
 
 def esc_tooltip(text: str) -> str:
@@ -431,9 +455,11 @@ def render(
             attrs.append(f"color={COLOR_ACCENT}")
         if i["version"] is None and i["first_line"]:
             attrs.append(f'tooltip="{esc_tooltip("Snapshot starts: " + i["first_line"])}"')
-        print(f"{marker}{name}  {version} | {' '.join(attrs)}")
+        since = i.get("since") or 0
+        date = f"[{format_date(since)}] " if since else ""
+        print(f"{date}{marker}{name}  {version} | {' '.join(attrs)}")
         if i["link"]:
-            print(f"{marker}{name}  {version} | href={i['link']} alternate=true")
+            print(f"{date}{marker}{name}  {version} | href={i['link']} alternate=true")
         changed = (
             f"changed {format_ago(i['last_changed'], now)}"
             if i["last_changed"]
