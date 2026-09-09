@@ -85,7 +85,7 @@ from pathlib import Path
 REQUEST_TIMEOUT = 10
 CACHE_MAX_AGE_HOURS = 72
 TITLE_SEP = " · "
-VERSION_RE = re.compile(r"\bv?\d+\.\d+(?:\.\d+)*(?:[-+][0-9A-Za-z.]+)?\b")
+VERSION_RE = re.compile(r"\bv?\d+\.\d+(?:\.\d+)*(?:[-+][0-9A-Za-z.]+)*(?: beta \d+)?\b")
 SKIP_LINES = {"[", "]", "{", "}"}
 ICON = "sfimage=shippingbox"
 
