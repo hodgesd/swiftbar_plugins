@@ -68,6 +68,10 @@ SETUP
    compose:<image> reads the "# vX.Y.Z" comment on that image line of
    compose_file. A watch with no source shows only the latest version.
 
+   Optional "notes" maps a watch name to its release-notes page for the
+   submenu. Without it, GitHub API watches link to the repo's releases page,
+   Homebrew cask API watches to the cask page, and others to the watched URL.
+
 2. API key in the macOS Keychain (Settings > API in changedetection.io):
 
      security add-generic-password -U -s changedetection.io -a api -w '<key>'
@@ -190,7 +194,24 @@ def load_config() -> dict:
         "keychain_account": str(cfg.get("keychain_account", "api")),
         "installed": cfg.get("installed") or {},
         "compose_file": str(cfg.get("compose_file", "")),
+        "notes": cfg.get("notes") or {},
     }
+
+
+def notes_url(name: str, watch_url: str, cfg: dict) -> str:
+    """Release-notes page for a watch: config override, else derived from the
+    watch URL (GitHub API -> the repo's releases page, Homebrew cask API -> the
+    cask page), else the watched URL itself."""
+    override = cfg.get("notes", {}).get(name)
+    if override:
+        return str(override)
+    m = re.match(r"https://api\.github\.com/repos/([^/]+/[^/]+)/", watch_url)
+    if m:
+        return f"https://github.com/{m.group(1)}/releases"
+    m = re.match(r"https://formulae\.brew\.sh/api/cask/([^.]+)\.json", watch_url)
+    if m:
+        return f"https://formulae.brew.sh/cask/{m.group(1)}"
+    return watch_url
 
 
 def get_api_key(cfg: dict) -> str:
@@ -472,6 +493,7 @@ def fetch_items(client: Client, cfg: dict) -> tuple[list[dict], str | None, list
                 "last_error": w.get("last_error") or False,
                 "viewed": bool(w.get("viewed", True)),
                 "link": w.get("link") or w.get("url") or "",
+                "notes": notes_url(name, w.get("url") or "", cfg),
             }
         )
 
@@ -597,6 +619,8 @@ def render(
             if i["last_changed"]
             else "not changed yet"
         )
+        if i.get("notes"):
+            print(f"--Release notes | href={i['notes']}")
         inst = f"installed {installed}" if installed else "installed version unknown"
         print(f"--{inst} ({status}, via {esc_label(str(i.get('source')))}) | color={COLOR_DIM}")
         print(f"--{changed} | color={COLOR_DIM}")
