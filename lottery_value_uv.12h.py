@@ -26,7 +26,7 @@ This is entertainment budgeting software, not investment advice.
 # <bitbar.author>hodgesd</bitbar.author>
 # <bitbar.desc>Powerball vs Mega Millions jackpot value with a rare-buy trigger</bitbar.desc>
 # <bitbar.dependencies>python,aiohttp</bitbar.dependencies>
-# <bitbar.version>2.0</bitbar.version>
+# <bitbar.version>2.1</bitbar.version>
 # <swiftbar.hideAbout>true</swiftbar.hideAbout>
 # <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
 # <swiftbar.hideLastUpdated>false</swiftbar.hideLastUpdated>
@@ -355,7 +355,7 @@ async def fetch_html(
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 LotteryValueMenu/2.0"
+            "AppleWebKit/537.36 LotteryValueMenu/2.1"
         )
     }
     for attempt in range(FETCH_RETRY_COUNT + 1):
