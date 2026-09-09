@@ -611,9 +611,9 @@ def render(
             attrs.append(f'tooltip="{esc_tooltip("Snapshot starts: " + i["first_line"])}"')
         since = i.get("since") or 0
         date = f"[{format_date(since)}] " if since else ""
+        # No alternate=true line here: SwiftBar hangs the "--" submenu off the
+        # immediately preceding item, and an Option-key alternate would swallow it.
         print(f"{date}{marker}{name}  {version} | {' '.join(attrs)}")
-        if i["link"]:
-            print(f"{date}{marker}{name}  {version} | href={i['link']} alternate=true")
         changed = (
             f"changed {format_ago(i['last_changed'], now)}"
             if i["last_changed"]
