@@ -5,7 +5,7 @@
 # ///
 
 # <swiftbar.title>Software Versions</swiftbar.title>
-# <swiftbar.version>v1.0</swiftbar.version>
+# <swiftbar.version>v1.1</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Current versions of tracked apps, read from a self-hosted changedetection.io (watches tagged "software"). Configure via ~/.config/swiftbar-plugins/software_versions.json</swiftbar.desc>
@@ -71,6 +71,12 @@ SETUP
    Optional "notes" maps a watch name to its release-notes page for the
    submenu. Without it, GitHub API watches link to the repo's releases page,
    Homebrew cask API watches to the cask page, and others to the watched URL.
+
+   "alert_template" (default true) keeps the tag's notification title and
+   body in changedetection.io set to "<name>: <new>" / "<old> → <new>" plus
+   the release page (the exact GitHub release when there is no notes
+   override, the diff page for raw feeds). Tag templates override the
+   global ones, so other watches keep the instance-wide format.
 
 2. API key in the macOS Keychain (Settings > API in changedetection.io):
 
@@ -190,6 +196,7 @@ def load_config() -> dict:
         "tag": tag,
         "recent_days": int(cfg.get("recent_days", 14)),
         "update_titles": bool(cfg.get("update_titles", True)),
+        "alert_template": bool(cfg.get("alert_template", True)),
         "keychain_service": str(cfg.get("keychain_service", "changedetection.io")),
         "keychain_account": str(cfg.get("keychain_account", "api")),
         "installed": cfg.get("installed") or {},
@@ -311,6 +318,77 @@ class Client:
     def set_title(self, uuid: str, title: str) -> bool:
         status, _ = self.request("PUT", f"/api/v1/watch/{uuid}", {"title": title})
         return status == 200
+
+    def list_tags(self) -> dict:
+        status, text = self.request("GET", "/api/v1/tags")
+        if status != 200:
+            raise RuntimeError(f"tag list HTTP {status}")
+        return json.loads(text)
+
+    def get_tag(self, uuid: str) -> dict:
+        """Full tag record (the list endpoint omits notification fields)."""
+        status, text = self.request("GET", f"/api/v1/tag/{uuid}")
+        if status != 200:
+            raise RuntimeError(f"tag HTTP {status}")
+        return json.loads(text)
+
+    def update_tag(self, uuid: str, fields: dict) -> bool:
+        status, _ = self.request("PUT", f"/api/v1/tag/{uuid}", fields)
+        return status == 200
+
+
+# ─── Alert template ──────────────────────────────────────────────────────
+# changedetection.io renders notification title/body as Jinja, and a tag's
+# templates win over the global ones. The plugin keeps the tag's templates in
+# sync so software alerts read "<name>: <new>" / "<old> → <new>" and link to
+# the same release-notes page as the menu.
+
+# First non-bracket line of a snapshot (JSON list filters start with "[").
+_FIRST_LINE_MACRO = (
+    "{% macro first(s) %}{% set ns = namespace(v='') %}"
+    "{% for l in (s or '').splitlines() %}{% set t = l | trim(' \",[]{}') %}"
+    "{% if t and not ns.v %}{% set ns.v = t %}{% endif %}{% endfor %}{{ ns.v }}{% endmacro %}"
+    "{% set name = watch_title.split(' · ')[0] %}{% set new = first(current_snapshot) %}"
+)
+ALERT_TITLE = _FIRST_LINE_MACRO + "{{ name }}: {{ new or 'changed' }}"
+# A link ending in "/tag/" gets the new version appended (GitHub release page).
+ALERT_BODY = (
+    _FIRST_LINE_MACRO
+    + "{% set links = __LINKS__ %}{% set link = links.get(name) or diff_url %}"
+    "{% if link.endswith('/tag/') %}{% set link = link ~ new %}{% endif %}"
+    "{{ first(prev_snapshot) or '?' }} → {{ new }}\n{{ link }}"
+)
+
+
+def alert_links(items: list[dict], cfg: dict) -> dict[str, str]:
+    """Watch name -> release page for alerts. GitHub repos without a notes
+    override link to the specific release; raw feeds (appcast XML, JSON) are
+    left out so the alert falls back to the diff page."""
+    links = {}
+    for i in items:
+        link = i.get("notes") or ""
+        if i["name"] not in cfg["notes"] and re.fullmatch(r"https://github\.com/[^/]+/[^/]+/releases", link):
+            link += "/tag/"
+        elif re.search(r"\.(xml|json)(\?|$)", link):
+            continue
+        links[i["name"]] = link
+    return links
+
+
+def sync_alert_template(client: Client, items: list[dict], cfg: dict) -> str | None:
+    """Write the tag's notification templates if they differ. Returns a warning."""
+    title = ALERT_TITLE
+    body = ALERT_BODY.replace("__LINKS__", json.dumps(alert_links(items, cfg), ensure_ascii=False, sort_keys=True))
+    tag_uuid = next((u for u, t in client.list_tags().items() if t.get("title") == cfg["tag"]), None)
+    if tag_uuid is None:
+        return f"Tag {cfg['tag']!r} not found; alert template not synced"
+    tag = client.get_tag(tag_uuid)
+    if tag.get("notification_title") == title and tag.get("notification_body") == body:
+        return None
+    if not client.update_tag(tag_uuid, {"notification_title": title, "notification_body": body}):
+        return "Could not update the alert template"
+    debug("alert template updated")
+    return None
 
 
 # ─── Version handling ────────────────────────────────────────────────────
@@ -653,6 +731,13 @@ def main() -> None:
     client = Client(cfg["base_url"], api_key)
     try:
         items, tag_uuid, warnings = fetch_items(client, cfg)
+        if cfg["alert_template"]:
+            try:
+                warning = sync_alert_template(client, items, cfg)
+            except (RuntimeError, OSError, ValueError) as exc:  # never lose the menu over it
+                warning = f"Alert template sync failed: {exc}"
+            if warning:
+                warnings.append(warning)
         save_cache(items, tag_uuid)
         render(items, tag_uuid, cfg, warnings)
     except AuthError as exc:
