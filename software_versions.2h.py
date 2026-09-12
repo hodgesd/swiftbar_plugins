@@ -430,11 +430,26 @@ class Client:
 # sync so software alerts read "<name>: <new>" / "<old> → <new>" and link to
 # the same release-notes page as the menu.
 
-# First non-bracket line of a snapshot (JSON list filters start with "[").
+# First version-looking line of a snapshot, falling back to the first
+# non-bracket line (JSON list filters start with "["). The version test exists
+# because some release feeds lead with a rolling tag rather than a version:
+# Karabiner-Elements' releases list starts with a literal "beta" and ghostty's
+# with "tip", which made alerts read "Karabiner-Elements: beta" / "v16.3.0 →
+# beta" when a new beta was published. The fallback keeps watches with no
+# version at all (price pages, ghostty) behaving as they did before.
+#
+# The test is a regex_replace that blanks a whole version-looking token, so an
+# empty result means "this line is a version". Two constraints on the pattern:
+# changedetection rejects nested quantifiers such as (\.[0-9]+)+ as a ReDoS
+# risk and then returns the value UNCHANGED, which would silently fail every
+# line; and [.] avoids asking how backslashes survive a Jinja string literal.
+# Requiring digit-dot-digit matches VERSION_RE's own floor.
 _FIRST_LINE_MACRO = (
-    "{% macro first(s) %}{% set ns = namespace(v='') %}"
+    "{% macro first(s) %}{% set ns = namespace(v='', f='') %}"
     "{% for l in (s or '').splitlines() %}{% set t = l | trim(' \",[]{}') %}"
-    "{% if t and not ns.v %}{% set ns.v = t %}{% endif %}{% endfor %}{{ ns.v }}{% endmacro %}"
+    "{% if t %}{% if not ns.f %}{% set ns.f = t %}{% endif %}"
+    "{% if not ns.v and (t | regex_replace('^[vV]?[0-9]+[.][0-9].*$', '')) == '' %}"
+    "{% set ns.v = t %}{% endif %}{% endif %}{% endfor %}{{ ns.v or ns.f }}{% endmacro %}"
     "{% set name = watch_title.split(' · ')[0] %}{% set new = first(current_snapshot) %}"
 )
 ALERT_TITLE = _FIRST_LINE_MACRO + "{{ name }}: {{ new or 'changed' }}"
