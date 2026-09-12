@@ -279,7 +279,14 @@ def load_config() -> dict:
         ),
         "summary_max_input_chars": int(cfg.get("summary_max_input_chars", 24000)),
         "summary_max_chars": int(cfg.get("summary_max_chars", 320)),
-        "summary_timeout": int(cfg.get("summary_timeout", 60)),
+        "summary_timeout": int(cfg.get("summary_timeout", 120)),
+        # Passed through as `-o <key> <value>`. Model-specific, so the default
+        # is empty -- an option the chosen model does not accept is a hard
+        # error from llm. Worth setting on a reasoning model: gpt-5-mini spends
+        # 12s at its default effort and 3.7s at "minimal" on a 4k payload, and
+        # reasoning tokens bill at the output rate. ("none" is rejected
+        # outright: reasoning is mandatory on that endpoint.)
+        "summary_options": cfg.get("summary_options") or {},
         "summary_max_per_run": int(cfg.get("summary_max_per_run", 5)),
         "summary_cache_path": str(cfg.get("summary_cache_path") or ""),
         "summary_repo": cfg.get("summary_repo") or {},
@@ -826,7 +833,15 @@ def _content_fp(cfg: dict, repo: str) -> str:
 
 
 def _exec_fp(cfg: dict) -> str:
-    return f"{cfg['llm_path']}|{cfg['summary_model']}"
+    """Everything that decides whether the call can succeed at all.
+
+    Timeout and options belong here as much as the model does: raising a
+    timeout that was too short, or lowering reasoning effort so the call
+    finishes, has to retry the errors it caused rather than sit out a backoff
+    that may already have escalated to 24h.
+    """
+    opts = ",".join(f"{k}={v}" for k, v in sorted(cfg["summary_options"].items()))
+    return f"{cfg['llm_path']}|{cfg['summary_model']}|{cfg['summary_timeout']}|{opts}"
 
 
 def summary_key(name: str, installed: str | None, latest: str | None) -> str:
@@ -943,8 +958,13 @@ def collect_notes(releases: list[dict], span: list[str], cfg: dict) -> dict:
     return {"text": "\n\n".join(chunks), "found": len(kept), "total": len(span)}
 
 
-def clean_summary(raw: str, cfg: dict) -> str:
-    """Enforce the tooltip contract in code; the prompt can only request it."""
+def clean_summary(raw: str, cfg: dict, reserve: int = 0) -> str:
+    """Enforce the tooltip contract in code; the prompt can only request it.
+
+    `reserve` holds back room for a caller-added prefix, so the finished
+    tooltip honours summary_max_chars rather than overshooting by the length
+    of the prefix.
+    """
     text = (raw or "").strip()
     # Strip markdown emphasis/heading/bullet leaders line by line, then flatten
     # to a single line: esc_tooltip escapes newlines to a literal \n and
@@ -959,7 +979,9 @@ def clean_summary(raw: str, cfg: dict) -> str:
     text = " · ".join(lines)
     text = re.sub(r"\s+", " ", text).strip(" ·\t ")
 
-    limit = cfg["summary_max_chars"]
+    # Only guards against a long prefix consuming the whole budget; a small
+    # configured summary_max_chars is still honoured.
+    limit = max(1, cfg["summary_max_chars"] - reserve)
     if len(text) > limit:
         cut = text[: limit - 1]
         if " " in cut:
@@ -994,6 +1016,8 @@ def summarize(item: dict, span: dict, notes: dict, cfg: dict) -> str | None:
         "-n",            # keep these prompts out of llm's own SQLite log
         "--no-stream",
     ]
+    for k, v in sorted(cfg["summary_options"].items()):
+        cmd += ["-o", str(k), str(v)]
     # Not _run(): that merges stderr into stdout, discards the return code, and
     # shares the 10s REQUEST_TIMEOUT, which is far too short for a model call.
     try:
@@ -1008,16 +1032,21 @@ def summarize(item: dict, span: dict, notes: dict, cfg: dict) -> str | None:
         debug(f"llm {item['name']}: exit {r.returncode}: {(r.stderr or '').strip()[:200]}")
         return None
 
-    text = clean_summary(r.stdout, cfg)
+    # Decide the prefix BEFORE trimming, so its length is reserved: capping
+    # first and prepending after overshoots summary_max_chars by the prefix.
+    if span["partial"]:
+        prefix = "Partial — available releases only: "
+    elif notes["found"] < notes["total"]:
+        prefix = "Partial notes — "
+    else:
+        prefix = ""
+
+    text = clean_summary(r.stdout, cfg, reserve=len(prefix))
     if not text:
         return None
     if text.lower().startswith("no user-facing changes"):
         return "No user-facing changes"
-    if span["partial"]:
-        text = f"Partial — available releases only: {text}"
-    elif notes["found"] < notes["total"]:
-        text = f"Partial notes — {text}"
-    return text
+    return prefix + text
 
 
 def pending_items(items: list[dict], cfg: dict, cache: dict, now: float) -> list[dict]:
