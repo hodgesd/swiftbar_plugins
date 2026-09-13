@@ -451,9 +451,16 @@ class Client:
 # risk and then returns the value UNCHANGED, which would silently fail every
 # line; and [.] avoids asking how backslashes survive a Jinja string literal.
 # Requiring digit-dot-digit matches VERSION_RE's own floor.
+#
+# A leading "- " is stripped before the test because changelog-style feeds
+# bullet their release lines: changedetection.io's CHANGELOG.txt lists
+# " - 0.60.4", which failed the version test and fell through to the first
+# line of its ASCII-art banner. startswith/slice rather than regex_replace, so
+# the ReDoS guard above can't swallow it.
 _FIRST_LINE_MACRO = (
     "{% macro first(s) %}{% set ns = namespace(v='', f='') %}"
     "{% for l in (s or '').splitlines() %}{% set t = l | trim(' \",[]{}') %}"
+    "{% if t.startswith('- ') %}{% set t = t[2:] | trim %}{% endif %}"
     "{% if t %}{% if not ns.f %}{% set ns.f = t %}{% endif %}"
     "{% if not ns.v and (t | regex_replace('^[vV]?[0-9]+[.][0-9].*$', '')) == '' %}"
     "{% set ns.v = t %}{% endif %}{% endif %}{% endfor %}{{ ns.v or ns.f }}{% endmacro %}"
