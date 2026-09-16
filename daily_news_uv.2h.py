@@ -188,6 +188,12 @@ def prune_cache(directory: str, max_age_days: int) -> None:
             continue
 
 
+def usable_description(text: str) -> bool:
+    return len(text) >= PREVIEW_MIN_CHARS and not any(
+        pattern.search(text) for pattern in BOILERPLATE_DESCRIPTIONS
+    )
+
+
 def extract_meta_description(html: str) -> Optional[str]:
     """Pull a per-article description from a page's meta tags, ignoring site boilerplate."""
     soup = BeautifulSoup(html, "html.parser")
@@ -196,11 +202,15 @@ def extract_meta_description(html: str) -> Optional[str]:
                   {"name": "description"}):
         tag = soup.find("meta", attrs=attrs)
         text = re.sub(r"\s+", " ", (tag.get("content") if tag else None) or "").strip()
-        if len(text) < PREVIEW_MIN_CHARS:
-            continue
-        if any(pattern.search(text) for pattern in BOILERPLATE_DESCRIPTIONS):
-            continue
-        return text
+        if usable_description(text):
+            return text
+
+    # Plenty of personal blogs tag nothing at all — half of lobste.rs on a given day. Their
+    # opening paragraph is a fair preview, and the boilerplate filter still applies to it.
+    for paragraph in soup.find_all("p", limit=8):
+        text = re.sub(r"\s+", " ", paragraph.get_text(" ", strip=True)).strip()
+        if usable_description(text):
+            return text
     return None
 
 
@@ -210,9 +220,13 @@ JUNK_SUMMARIES = frozenset({'comments', 'comment', 'read more', 'continue readin
                             'link', 'no summary', 'untitled'})
 
 
+# WordPress appends this to every summary it syndicates, which is noise in a tooltip
+FEED_FOOTER_RE = re.compile(r"\s*The post\b.*?\bappeared first on\b.*$", re.I)
+
+
 def clean_summary(text: str) -> str:
-    """Collapse whitespace and drop feed placeholder text."""
-    text = re.sub(r'\s+', ' ', text or '').strip()
+    """Collapse whitespace, drop the WordPress footer, and drop feed placeholder text."""
+    text = FEED_FOOTER_RE.sub('', re.sub(r'\s+', ' ', text or '').strip()).strip()
     return '' if text.lower().strip('.: ') in JUNK_SUMMARIES else text
 
 
@@ -229,7 +243,13 @@ async def _fetch_one_preview(session, semaphore, url):
             headers = {"User-Agent": BROWSER_UA, "Accept": "text/html,application/xhtml+xml"}
             async with session.get(url, headers=headers, allow_redirects=True) as response:
                 if response.status == 200 and "html" in response.headers.get("content-type", ""):
-                    raw = await response.content.read(PREVIEW_MAX_BYTES)
+                    # read() returns only what is already buffered, which on some hosts is one
+                    # small chunk that stops short of <head>
+                    raw = b""
+                    async for chunk in response.content.iter_chunked(16384):
+                        raw += chunk
+                        if len(raw) >= PREVIEW_MAX_BYTES:
+                            break
                     description = extract_meta_description(raw.decode("utf-8", "ignore"))
         except Exception:
             description = None
