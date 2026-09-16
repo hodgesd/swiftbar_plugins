@@ -10,15 +10,18 @@
 # ///
 
 # <swiftbar.title>Combined Tech News</swiftbar.title>
-# <swiftbar.version>v2.0</swiftbar.version>
+# <swiftbar.version>v2.1</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
-# <swiftbar.desc>Combines STLToday, STL PR, BND, Techmeme, Lobste.rs, Hacker News, Simon Willison, MLX, Agentic AI, Home Lab, NBA, EV/Solar, and Fitness 50+ in one dropdown</swiftbar.desc>
+# <swiftbar.desc>Combines STLToday, STL PR, BND, Techmeme, Lobste.rs, Hacker News, Simon Willison, Local AI, Home Lab, NBA, EV/Solar, and Fitness 50+ in one dropdown</swiftbar.desc>
 # <swiftbar.dependencies>uv, beautifulsoup4, aiohttp, requests</swiftbar.dependencies>
 
 import asyncio
+import calendar
 import datetime
+import hashlib
 import re
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -103,7 +106,6 @@ def get_hn_discussion_summary(story_id: str) -> str:
     except Exception as e:
         return "See HN discussion"
 
-import time
 from io import StringIO
 from requests.adapters import HTTPAdapter, Retry
 
@@ -231,6 +233,168 @@ async def fetch_hncompanion_summary(session: aiohttp.ClientSession, story_id: st
 
 
 
+# --- Article link previews -------------------------------------------------
+# Lobsters, selfh.st, the HF blog and GitHub releases all hand us headlines with no summary, which
+# leaves format_headline falling back to a tooltip that just repeats the headline. For those rows we
+# read the linked page's own description. Results are cached to disk, so a steady-state refresh
+# mostly costs nothing; only links seen for the first time are fetched.
+PREVIEW_CACHE_DIR = os.path.expanduser("~/.cache/swiftbar_link_previews")
+os.makedirs(PREVIEW_CACHE_DIR, exist_ok=True)
+
+PREVIEW_TTL_HIT = 30 * 86400   # a page description rarely changes
+PREVIEW_TTL_MISS = 3 * 86400   # retry paywalled/JS-only pages occasionally, not every run
+PREVIEW_MIN_CHARS = 40         # shorter than this and a "summary" tells you nothing
+PREVIEW_MAX_CHARS = 500
+PREVIEW_READ_BYTES = 131072    # enough to reach <head> and the lede; never pull a whole page
+PREVIEW_CONCURRENCY = 12
+PREVIEW_TIMEOUT = 6
+
+# Descriptions that are site boilerplate rather than a preview of this particular article
+PREVIEW_BOILERPLATE = (
+    "on a journey to advance and democratize artificial intelligence",
+    "a blog post by",
+    "enable javascript",
+    "javascript is disabled",
+    "please enable cookies",
+    "checking your browser",
+    "just a moment",
+    "access denied",
+    "subscribe to continue",
+    "sign in to continue",
+)
+
+
+def _preview_cache_path(url: str) -> str:
+    return os.path.join(PREVIEW_CACHE_DIR, hashlib.sha1(url.encode("utf-8")).hexdigest() + ".json")
+
+
+def get_cached_preview(url: str):
+    """Return (is_cached, preview). A cached miss is honoured for a shorter window than a hit."""
+    try:
+        with open(_preview_cache_path(url)) as f:
+            data = json.load(f)
+    except Exception:
+        return False, None
+
+    preview = data.get("preview")
+    ttl = PREVIEW_TTL_HIT if preview else PREVIEW_TTL_MISS
+    if time.time() - data.get("fetched", 0) > ttl:
+        return False, None
+    return True, preview
+
+
+def save_preview_cache(url: str, preview: Optional[str]) -> None:
+    try:
+        with open(_preview_cache_path(url), "w") as f:
+            json.dump({"url": url, "preview": preview, "fetched": time.time()}, f)
+    except Exception:
+        pass  # Silently fail on cache write
+
+
+# WordPress feeds append their own footer to every summary ("The post <title> appeared first on
+# <site>."), which is noise that would otherwise eat into the tooltip budget
+FEED_FOOTER_RE = re.compile(r"\s*The post\b.*?\bappeared first on\b.*$", re.I)
+
+
+def clean_preview_text(text: str) -> str:
+    """Collapse whitespace, drop feed footers, and cap at tooltip length."""
+    collapsed = re.sub(r"\s+", " ", text or "").strip()
+    return cap_tooltip(FEED_FOOTER_RE.sub("", collapsed).strip(), PREVIEW_MAX_CHARS)
+
+
+def is_useless_preview(text: str, headline: str = "") -> bool:
+    """True when a candidate is too short, site boilerplate, or just the headline restated."""
+    if len(text) < PREVIEW_MIN_CHARS:
+        return True
+    lowered = text.lower()
+    if any(phrase in lowered for phrase in PREVIEW_BOILERPLATE):
+        return True
+    # A description that covers the headline and adds little length is the headline again
+    if headline and len(text) < len(headline) * 1.6:
+        head_words = set(re.findall(r"\w+", headline.lower()))
+        if head_words and len(head_words & set(re.findall(r"\w+", lowered))) / len(head_words) >= 0.8:
+            return True
+    return False
+
+
+def extract_preview(html: str, headline: str = "") -> Optional[str]:
+    """Lift a description from page metadata, falling back to the first substantial paragraph."""
+    soup = BeautifulSoup(html, "html.parser")
+    for attrs in ({"property": "og:description"}, {"name": "description"}, {"name": "twitter:description"}):
+        tag = soup.find("meta", attrs=attrs)
+        candidate = clean_preview_text(tag.get("content", "")) if tag else ""
+        if candidate and not is_useless_preview(candidate, headline):
+            return candidate
+
+    # Hugging Face and friends serve one boilerplate og:description sitewide; their lede is the first <p>
+    for paragraph in soup.find_all("p", limit=8):
+        candidate = clean_preview_text(paragraph.get_text(" ", strip=True))
+        if candidate and not is_useless_preview(candidate, headline):
+            return candidate
+    return None
+
+
+async def fetch_link_preview(session: aiohttp.ClientSession, url: str, headline: str = "") -> Optional[str]:
+    """Return a one-paragraph preview of the linked article, or None. Misses are cached too."""
+    is_cached, cached = get_cached_preview(url)
+    if is_cached:
+        return cached
+
+    preview = None
+    try:
+        async with session.get(url, allow_redirects=True) as response:
+            if response.status < 400 and "html" in response.headers.get("content-type", ""):
+                # read() returns only what is buffered, which can stop short of <head>
+                raw = b""
+                async for chunk in response.content.iter_chunked(16384):
+                    raw += chunk
+                    if len(raw) >= PREVIEW_READ_BYTES:
+                        break
+                    # Usually the description sits in <head>: stop as soon as it is in hand,
+                    # and keep reading only for pages that will need the first-paragraph fallback
+                    if b"</head>" in raw and (b"og:description" in raw or b'name="description"' in raw):
+                        break
+                preview = extract_preview(raw.decode(response.charset or "utf-8", "ignore"), headline)
+    except Exception:
+        preview = None  # A dead or slow link just keeps its headline tooltip
+
+    save_preview_cache(url, preview)
+    return preview
+
+
+async def enrich_previews(items) -> dict:
+    """Fetch previews for (headline, url) pairs. Returns {url: preview} for links that yielded one."""
+    wanted = {}
+    for headline, url in items:
+        if url and url.startswith("http"):
+            wanted.setdefault(url, headline)
+    if not wanted:
+        return {}
+
+    previews = {}
+    semaphore = asyncio.Semaphore(PREVIEW_CONCURRENCY)
+    timeout = ClientTimeout(total=PREVIEW_TIMEOUT)
+    try:
+        async with aiohttp.ClientSession(
+            timeout=timeout,
+            headers=BROWSER_HEADERS,
+            connector=aiohttp.TCPConnector(ssl=False, limit=PREVIEW_CONCURRENCY),
+        ) as session:
+            async def one(url, headline):
+                async with semaphore:
+                    return await fetch_link_preview(session, url, headline)
+
+            results = await asyncio.gather(
+                *(one(url, headline) for url, headline in wanted.items()), return_exceptions=True
+            )
+        for url, result in zip(wanted, results):
+            if isinstance(result, str) and result:
+                previews[url] = result
+    except Exception:
+        pass  # A preview is a nicety; never fail a section over it
+    return previews
+
+
 # Constants
 TECHMEME_URL = "https://www.techmeme.com/"
 HN_URL = "https://news.ycombinator.com/"
@@ -240,11 +404,25 @@ STLTODAY_URL = "https://www.stltoday.com"
 BND_URL = "https://www.bnd.com"
 STLPR_URL = "https://www.stlpr.org"
 SIMONWILLISON_FEED = "https://simonwillison.net/atom/everything/"
-ALGOLIA_SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date"
+ALGOLIA_SEARCH_URL = "https://hn.algolia.com/api/v1/search"
 REQUEST_TIMEOUT = 10
 MAX_HEADLINES = 15
 MAX_TOPIC_HEADLINES = 8  # Smaller cap for the topic-interest sections
 TRIM_LENGTH = 100  # Character limit for headlines
+
+# Topic sections lean on their RSS feeds; HN only supplements them, so its hits have to be both
+# recent and well-received. An exact-phrase search over all of HN history returns stories years old.
+HN_TOPIC_MAX_AGE_DAYS = 30
+HN_TOPIC_MIN_POINTS = 20
+FEED_MAX_AGE_DAYS = 21  # a dormant feed drops out of a section instead of padding it with old posts
+
+# Shared by the preview fetcher, feedparser and the sync scrapers: several sources (Reddit above all)
+# refuse a default client user-agent.
+BROWSER_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+}
 
 # STLToday configuration
 STL_EXCLUDED_CATEGORIES = {
@@ -308,9 +486,7 @@ async def getDOM(url):
 def setup_sync_session() -> requests.Session:
     """Setup requests session with retry logic and headers"""
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
+        **BROWSER_HEADERS,
         'Accept-Encoding': 'gzip, deflate, br',
         'DNT': '1',
         'Connection': 'keep-alive',
@@ -374,7 +550,7 @@ def format_stl_headline(article: Article) -> str:
     display_headline = f"[{article.category}] {article.headline}"
 
     # Escape quotes in tooltip
-    tooltip_text = article.summary.replace('\\', '\\\\').replace('"', '\\"')
+    tooltip_text = (article.summary or article.headline).replace('\\', '\\\\').replace('"', '\\"')
     return f"-- {display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
 
 
@@ -425,48 +601,78 @@ def format_stlpr_headline(article: Article) -> str:
 
 
 async def fetch_rss_section(buffer, title, home_url, color, feeds, max_items=MAX_TOPIC_HEADLINES, exclude=None,
-                            per_feed_max=None):
+                            per_feed_max=None, max_age_days=FEED_MAX_AGE_DAYS):
     """Render a section from one or more RSS/Atom feeds, merged newest-first.
 
     feeds: list of (feed_url, tag) tuples; a failing feed is skipped, not fatal.
     exclude: optional regex — entries whose title matches are skipped (feed boilerplate).
     per_feed_max: optional cap per feed, so a high-volume source can't crowd out the others.
+    max_age_days: drop entries older than this, so a feed that has gone quiet leaves the section
+        rather than filling it with months-old posts. Undated entries survive only when their feed
+        dates nothing at all — otherwise a stale feed could slip old posts past the cutoff.
+    Entries the feed leaves unsummarised get a preview fetched from the article itself.
     """
     buffer.write(f"{title} | href={home_url} color={color}\n")
+
+    cutoff = time.time() - max_age_days * 86400 if max_age_days else None
 
     def sync_fetch():
         items = []
         for feed_url, tag in feeds:
             try:
-                feed = feedparser.parse(feed_url)
+                feed = feedparser.parse(feed_url, agent=BROWSER_HEADERS['User-Agent'])
+                feed_items = []
+                any_dated = False
                 for entry in (feed.entries[:per_feed_max] if per_feed_max else feed.entries):
                     if exclude and re.search(exclude, entry.get('title', '')):
                         continue
                     published = entry.get('published_parsed') or entry.get('updated_parsed')
+                    if published:
+                        any_dated = True
+                        if cutoff and calendar.timegm(published) < cutoff:
+                            continue
                     entry_title = entry.get('title', 'Untitled')
                     link = entry.get('link', '')
                     summary_html = entry.get('summary', '')
-                    summary_text = BeautifulSoup(summary_html, 'html.parser').get_text(' ', strip=True)
-                    items.append((published or time.gmtime(0), entry_title, link, tag, summary_text))
+                    summary_text = clean_preview_text(
+                        BeautifulSoup(summary_html, 'html.parser').get_text(' ', strip=True))
+                    feed_items.append(
+                        (published or time.gmtime(0), entry_title, link, tag, summary_text, published is not None))
             except Exception:
                 continue
+            if cutoff and any_dated:
+                feed_items = [item for item in feed_items if item[5]]
+            items.extend(feed_items)
         items.sort(key=lambda item: item[0], reverse=True)
         return items[:max_items]
 
     try:
         items = await asyncio.to_thread(sync_fetch)
         if not items:
-            buffer.write("--⚠️ No articles available | color=gray\n")
+            buffer.write("--⚠️ No recent articles | color=gray\n")
             return
-        for _, entry_title, link, tag, summary_text in items:
+        previews = await enrich_previews(
+            (entry_title, link)
+            for _, entry_title, link, _, summary_text, _ in items
+            if len(summary_text) < PREVIEW_MIN_CHARS
+        )
+        for _, entry_title, link, tag, summary_text, _ in items:
+            if len(summary_text) < PREVIEW_MIN_CHARS:
+                summary_text = previews.get(link, summary_text)
             buffer.write(format_headline(entry_title, link, tags=[tag], summary=summary_text or None))
     except Exception as e:
         buffer.write(f"--⚠️ Error fetching {title}: {e} | color=red\n")
 
 
 async def fetch_hn_topic(session, queries, max_items=MAX_TOPIC_HEADLINES):
-    """Search HN story titles via Algolia for exact-phrase queries; dedupe, newest first."""
+    """Search HN story titles via Algolia for exact-phrase queries; dedupe, newest first.
+
+    Bounded to the last HN_TOPIC_MAX_AGE_DAYS: these sections are carried by their RSS feeds now,
+    and an unbounded phrase search happily returns a story from two years ago. A quiet month
+    shows nothing rather than filler.
+    """
     hits_by_id = {}
+    recent_cutoff = int(time.time() - HN_TOPIC_MAX_AGE_DAYS * 86400)
     for query in queries:
         try:
             params = {
@@ -474,7 +680,7 @@ async def fetch_hn_topic(session, queries, max_items=MAX_TOPIC_HEADLINES):
                 'tags': 'story',
                 'restrictSearchableAttributes': 'title',
                 'advancedSyntax': 'true',
-                'numericFilters': 'points>5',
+                'numericFilters': f'created_at_i>{recent_cutoff},points>{HN_TOPIC_MIN_POINTS}',
                 'hitsPerPage': str(max_items),
             }
             async with session.get(ALGOLIA_SEARCH_URL, params=params) as response:
@@ -498,8 +704,8 @@ async def fetch_hn_topic(session, queries, max_items=MAX_TOPIC_HEADLINES):
 async def write_hn_topic_items(buffer, session, hits):
     """Write HN search hits as menu lines, with HN Companion summary tooltips where cached.
 
-    No llm/Gemini fallback here — niche stories are rarely worth a paid call;
-    misses fall back to a points/comments tooltip.
+    No llm/Gemini fallback here — niche stories are rarely worth a paid call; misses fall back to
+    a preview of the linked article, and only then to a points/comments tooltip.
     """
     summaries = {}
     uncached_ids = []
@@ -520,6 +726,12 @@ async def write_hn_topic_items(buffer, session, hits):
                 summaries[sid] = condensed
                 save_summary_cache(sid, condensed)
 
+    previews = await enrich_previews(
+        (hit.get('title', ''), hit.get('url'))
+        for hit in hits
+        if hit.get('objectID') not in summaries
+    )
+
     for hit in hits:
         story_id = hit.get('objectID')
         title = hit.get('title', 'Untitled')
@@ -527,7 +739,9 @@ async def write_hn_topic_items(buffer, session, hits):
         num_comments = hit.get('num_comments', 0) or 0
         formatted_title = f"[{points}↑] {title} ({num_comments}􀌪)"
 
-        summary = summaries.get(story_id, f"{points} points, {num_comments} comments")
+        summary = (summaries.get(story_id)
+                   or previews.get(hit.get('url') or '')
+                   or f"{points} points, {num_comments} comments")
         formatted_summary = format_hn_tooltip(summary)
         tooltip_text = (
             formatted_summary
@@ -683,6 +897,7 @@ async def fetch_lobsters(buffer=None):
     stories = result.select("ol.stories > li")[:MAX_HEADLINES]
     buffer.write(f"Lobste.rs | href={LOBSTERS_URL} color=#CC2200\n")
 
+    parsed = []
     for story in stories:
         try:
             title_elem = story.select_one(".link > a.u-url")
@@ -696,11 +911,20 @@ async def fetch_lobsters(buffer=None):
             summary = ''
             desc_elem = story.select_one(".description")
             if desc_elem:
-                summary = desc_elem.text.strip()
+                summary = clean_preview_text(desc_elem.text)
 
-            buffer.write(format_headline(title, url, tags, summary))
+            parsed.append((title, url, tags, summary))
         except Exception:
             continue
+
+    # Only a story or two in fifteen carries a submitter description, so most rows need a preview
+    previews = await enrich_previews(
+        (title, url) for title, url, _, summary in parsed if len(summary) < PREVIEW_MIN_CHARS
+    )
+    for title, url, tags, summary in parsed:
+        if len(summary) < PREVIEW_MIN_CHARS:
+            summary = previews.get(url, summary)
+        buffer.write(format_headline(title, url, tags, summary))
 
 
 async def fetch_stltoday(buffer=None):
@@ -738,7 +962,7 @@ async def fetch_stltoday(buffer=None):
                         headline = title_elem.get('aria-label') if title_elem and title_elem.has_attr('aria-label') else title_elem.get_text(strip=True)
                         link = title_elem['href'] if title_elem else ''
                         summary_elem = article_elem.select_one('div.card-lead p')
-                        summary = summary_elem.get_text(strip=True) if summary_elem else "No summary"
+                        summary = summary_elem.get_text(strip=True) if summary_elem else ''
 
                         article = Article(
                             headline=headline,
@@ -770,7 +994,14 @@ async def fetch_stltoday(buffer=None):
             # Error message
             buffer.write(f"--⚠️ {articles[0]}\n")
         else:
+            previews = await enrich_previews(
+                (article.headline, article.link)
+                for article in articles
+                if len(article.summary) < PREVIEW_MIN_CHARS
+            )
             for article in articles:
+                if len(article.summary) < PREVIEW_MIN_CHARS:
+                    article.summary = previews.get(article.link, article.summary)
                 buffer.write(format_stl_headline(article))
 
     except Exception as e:
@@ -870,7 +1101,14 @@ async def fetch_bnd(buffer=None):
             # Error message
             buffer.write(f"--⚠️ {articles[0]}\n")
         else:
+            previews = await enrich_previews(
+                (article.headline, article.link)
+                for article in articles
+                if len(article.summary) < PREVIEW_MIN_CHARS
+            )
             for article in articles:
+                if len(article.summary) < PREVIEW_MIN_CHARS:
+                    article.summary = previews.get(article.link, article.summary)
                 buffer.write(format_bnd_headline(article))
 
     except Exception as e:
@@ -966,7 +1204,14 @@ async def fetch_stlpr(buffer=None):
             # Error message
             buffer.write(f"--⚠️ {articles[0]}\n")
         else:
+            previews = await enrich_previews(
+                (article.headline, article.link)
+                for article in articles
+                if len(article.summary) < PREVIEW_MIN_CHARS
+            )
             for article in articles:
+                if len(article.summary) < PREVIEW_MIN_CHARS:
+                    article.summary = previews.get(article.link, article.summary)
                 buffer.write(format_stlpr_headline(article))
 
     except Exception as e:
@@ -1002,53 +1247,31 @@ async def fetch_simonwillison(buffer=None):
         buffer.write(f"--⚠️ Error fetching Simon Willison: {e} | color=red\n")
 
 
-async def fetch_mlx(buffer=None):
+async def fetch_local_ai(buffer=None):
+    """AI and local-LLM news. MLX and Agentic AI used to be separate sections fed by an HN phrase
+    search; both ran thin, so they are one section carried by real feeds, with HN as a supplement."""
     if buffer is None:
         buffer = StringIO()
 
-    buffer.write(f"MLX | href=https://github.com/ml-explore/mlx color=#0071E3\n")
+    await fetch_rss_section(
+        buffer, "Local AI", "https://huggingface.co/blog", "#0071E3",
+        [
+            ("https://www.latent.space/feed", "Latent"),
+            ("https://arstechnica.com/ai/feed/", "Ars"),
+            ("https://openai.com/news/rss.xml", "OpenAI"),
+            ("https://huggingface.co/blog/feed.xml", "HF"),
+            ("https://github.com/ml-explore/mlx/releases.atom", "mlx"),
+        ],
+        per_feed_max=4,
+    )
 
     try:
         timeout = ClientTimeout(total=REQUEST_TIMEOUT)
         async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
-            hits = await fetch_hn_topic(session, ["mlx"])
+            hits = await fetch_hn_topic(session, ["mlx", "local llm", "apple silicon"], max_items=4)
             await write_hn_topic_items(buffer, session, hits)
-
-        def sync_releases():
-            feed = feedparser.parse("https://github.com/ml-explore/mlx/releases.atom")
-            return [(entry.get('title', 'Untitled'), entry.get('link', '')) for entry in feed.entries[:3]]
-
-        for release_title, release_link in await asyncio.to_thread(sync_releases):
-            buffer.write(format_headline(f"mlx {release_title}", release_link, tags=["release"]))
-    except Exception as e:
-        buffer.write(f"--⚠️ Error fetching MLX: {e} | color=red\n")
-
-
-async def fetch_hermes(buffer=None):
-    if buffer is None:
-        buffer = StringIO()
-
-    buffer.write(f"Agentic AI | href=https://nousresearch.com color=#7C4DFF\n")
-
-    try:
-        timeout = ClientTimeout(total=REQUEST_TIMEOUT)
-        async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
-            hits = await fetch_hn_topic(session, ["hermes", "nous research"])
-            await write_hn_topic_items(buffer, session, hits)
-
-        def sync_hf_blog():
-            feed = feedparser.parse("https://huggingface.co/blog/feed.xml")
-            entries = []
-            for entry in feed.entries[:5]:
-                summary_html = entry.get('summary', '')
-                summary_text = BeautifulSoup(summary_html, 'html.parser').get_text(' ', strip=True)
-                entries.append((entry.get('title', 'Untitled'), entry.get('link', ''), summary_text))
-            return entries
-
-        for hf_title, hf_link, hf_summary in await asyncio.to_thread(sync_hf_blog):
-            buffer.write(format_headline(hf_title, hf_link, tags=["HF"], summary=hf_summary or None))
-    except Exception as e:
-        buffer.write(f"--⚠️ Error fetching Agentic AI: {e} | color=red\n")
+    except Exception:
+        pass  # RSS half of the section already rendered
 
 
 async def fetch_homelab(buffer=None):
@@ -1060,13 +1283,17 @@ async def fetch_homelab(buffer=None):
         [
             ("https://www.servethehome.com/feed/", "STH"),
             ("https://selfh.st/rss/", "selfh.st"),
+            ("https://www.jeffgeerling.com/blog.xml", "Geerling"),
+            # Reddit rate-limits unpredictably; a 429 just drops this feed for the run
+            ("https://www.reddit.com/r/homelab/top.rss?t=week", "r/homelab"),
         ],
+        per_feed_max=4,
     )
 
     try:
         timeout = ClientTimeout(total=REQUEST_TIMEOUT)
         async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
-            hits = await fetch_hn_topic(session, ["homelab"], max_items=5)
+            hits = await fetch_hn_topic(session, ["homelab", "self-hosted"], max_items=4)
             await write_hn_topic_items(buffer, session, hits)
     except Exception:
         pass  # RSS half of the section already rendered
@@ -1106,11 +1333,16 @@ async def fetch_fitness(buffer=None):
         buffer = StringIO()
 
     await fetch_rss_section(
-        buffer, "Fitness 50+", "https://www.strongerbyscience.com", "#E91E63",
+        buffer, "Fitness 50+", "https://peterattiamd.com", "#E91E63",
         [
-            ("https://www.strongerbyscience.com/feed/", "SBS"),
             ("https://peterattiamd.com/feed/", "Attia"),
+            ("https://www.outsideonline.com/health/feed/", "Outside"),
+            ("https://feeds.megaphone.fm/hubermanlab", "Huberman"),
+            ("https://www.sciencedaily.com/rss/health_medicine/fitness.xml", "SciDaily"),
+            # Dormant since mid-2026; the recency cutoff hides it until it posts again
+            ("https://www.strongerbyscience.com/feed/", "SBS"),
         ],
+        per_feed_max=3,
     )
 
 
@@ -1124,6 +1356,7 @@ async def main():
     # Section order matters: a submenu opens level with its parent row, and macOS clips
     # tooltips that extend above the screen. Hacker News carries the tallest tooltips,
     # so it sits 6th, giving its stories enough headroom for the full summary.
+    # Local AI merges what used to be the MLX and Agentic AI sections.
     sections = await asyncio.gather(
         fetch_and_buffer(fetch_stltoday),
         fetch_and_buffer(fetch_stlpr),
@@ -1132,8 +1365,7 @@ async def main():
         fetch_and_buffer(fetch_lobsters),
         fetch_and_buffer(fetch_hnt),
         fetch_and_buffer(fetch_simonwillison),
-        fetch_and_buffer(fetch_mlx),
-        fetch_and_buffer(fetch_hermes),
+        fetch_and_buffer(fetch_local_ai),
         fetch_and_buffer(fetch_homelab),
         fetch_and_buffer(fetch_nba),
         fetch_and_buffer(fetch_ev_solar),
