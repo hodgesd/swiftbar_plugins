@@ -10,14 +10,16 @@
 # ///
 
 # <swiftbar.title>Combined Tech News</swiftbar.title>
-# <swiftbar.version>v2.0</swiftbar.version>
+# <swiftbar.version>v2.1</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
-# <swiftbar.desc>Combines STLToday, STL PR, BND, Techmeme, Lobste.rs, Hacker News, Simon Willison, MLX, Agentic AI, Home Lab, NBA, EV/Solar, and Fitness 50+ in one dropdown</swiftbar.desc>
+# <swiftbar.desc>Combines STLToday, STL PR, BND, Techmeme, Lobste.rs, Hacker News, Simon Willison, and the Local & Agentic AI, Home Lab, NBA, EV/Solar and Fitness 50+ topics in one dropdown</swiftbar.desc>
 # <swiftbar.dependencies>uv, beautifulsoup4, aiohttp, requests</swiftbar.dependencies>
 
 import asyncio
+import calendar
 import datetime
+import functools
 import re
 from dataclasses import dataclass
 from typing import Optional
@@ -27,9 +29,11 @@ import feedparser
 import requests
 from aiohttp import ClientTimeout
 from bs4 import BeautifulSoup, Tag
+import hashlib
 import json
 import os
 import subprocess
+from urllib.parse import urlsplit
 
 # Cache directory for HN comment summaries
 CACHE_DIR = os.path.expanduser("~/.cache/swiftbar_hn_summaries")
@@ -106,6 +110,161 @@ def get_hn_discussion_summary(story_id: str) -> str:
 import time
 from io import StringIO
 from requests.adapters import HTTPAdapter, Retry
+
+# Article previews. Several feeds ship a headline and nothing else — Lobste.rs' description
+# field holds the submitter's note (usually empty), Hugging Face's feed has no summaries at
+# all — which left those rows with a tooltip that just repeated the headline. For them we
+# fetch the linked page and read its og:description. Hits and misses are both cached on disk,
+# so a steady-state run adds no network work.
+PREVIEW_CACHE_DIR = os.path.expanduser("~/.cache/swiftbar_news_previews")
+os.makedirs(PREVIEW_CACHE_DIR, exist_ok=True)
+
+PREVIEW_TTL_DAYS = 30        # reuse a description we found for this long
+PREVIEW_MISS_TTL_DAYS = 7    # don't re-fetch a page that had none
+PREVIEW_PRUNE_DAYS = 90      # drop cache files untouched for this long
+PREVIEW_CONCURRENCY = 10
+PREVIEW_TIMEOUT = 6
+PREVIEW_MAX_BYTES = 150_000
+PREVIEW_MIN_CHARS = 40
+PREVIEW_SHORT_SUMMARY = 80   # a feed summary shorter than this counts as missing
+
+BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+
+# These answer scripted requests with consent walls, bot checks or 429s — skip the request
+SKIP_PREVIEW_HOSTS = ("youtube.com", "youtu.be", "reddit.com", "x.com", "twitter.com")
+
+# Site-wide descriptions that say nothing about the individual article
+BOILERPLATE_DESCRIPTIONS = (
+    re.compile(r"^We.?re on a journey to advance and democratize artificial intelligence", re.I),
+    re.compile(r"^A Blog post by .+ on Hugging Face$", re.I),
+)
+
+
+def _preview_cache_path(url: str) -> str:
+    return os.path.join(PREVIEW_CACHE_DIR, hashlib.sha256(url.encode()).hexdigest() + ".json")
+
+
+def load_preview(url: str):
+    """Return (cache_answered, description). description is None for a remembered miss."""
+    path = _preview_cache_path(url)
+    try:
+        age_days = (time.time() - os.path.getmtime(path)) / 86400
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        return False, None
+    description = data.get("description")
+    if age_days > (PREVIEW_TTL_DAYS if description else PREVIEW_MISS_TTL_DAYS):
+        return False, None
+    return True, description
+
+
+def save_preview(url: str, description: Optional[str]) -> None:
+    try:
+        with open(_preview_cache_path(url), "w") as f:
+            json.dump({
+                "url": url,
+                "description": description,
+                "fetched": datetime.datetime.now().isoformat(),
+            }, f)
+    except Exception:
+        pass  # Silently fail on cache write
+
+
+def prune_cache(directory: str, max_age_days: int) -> None:
+    """Delete cache files older than max_age_days; both caches grow unbounded otherwise."""
+    cutoff = time.time() - max_age_days * 86400
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return
+    for name in names:
+        path = os.path.join(directory, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+        except OSError:
+            continue
+
+
+def extract_meta_description(html: str) -> Optional[str]:
+    """Pull a per-article description from a page's meta tags, ignoring site boilerplate."""
+    soup = BeautifulSoup(html, "html.parser")
+    for attrs in ({"property": "og:description"},
+                  {"name": "twitter:description"},
+                  {"name": "description"}):
+        tag = soup.find("meta", attrs=attrs)
+        text = re.sub(r"\s+", " ", (tag.get("content") if tag else None) or "").strip()
+        if len(text) < PREVIEW_MIN_CHARS:
+            continue
+        if any(pattern.search(text) for pattern in BOILERPLATE_DESCRIPTIONS):
+            continue
+        return text
+    return None
+
+
+# Placeholder text some feeds put in the description slot — worse than no tooltip at all,
+# because it displaces the headline fallback (lobste.rs tag feeds say "Comments" on every item)
+JUNK_SUMMARIES = frozenset({'comments', 'comment', 'read more', 'continue reading',
+                            'link', 'no summary', 'untitled'})
+
+
+def clean_summary(text: str) -> str:
+    """Collapse whitespace and drop feed placeholder text."""
+    text = re.sub(r'\s+', ' ', text or '').strip()
+    return '' if text.lower().strip('.: ') in JUNK_SUMMARIES else text
+
+
+def previewable(url: str) -> bool:
+    return bool(url) and url.startswith("http") and not any(
+        host in urlsplit(url).netloc for host in SKIP_PREVIEW_HOSTS
+    )
+
+
+async def _fetch_one_preview(session, semaphore, url):
+    description = None
+    async with semaphore:
+        try:
+            headers = {"User-Agent": BROWSER_UA, "Accept": "text/html,application/xhtml+xml"}
+            async with session.get(url, headers=headers, allow_redirects=True) as response:
+                if response.status == 200 and "html" in response.headers.get("content-type", ""):
+                    raw = await response.content.read(PREVIEW_MAX_BYTES)
+                    description = extract_meta_description(raw.decode("utf-8", "ignore"))
+        except Exception:
+            description = None
+    save_preview(url, description)
+    return url, description
+
+
+async def fetch_previews(urls) -> dict:
+    """Map article URL -> og:description, for the URLs worth previewing. Cached URLs cost nothing."""
+    previews = {}
+    pending = []
+    for url in dict.fromkeys(url for url in urls if previewable(url)):
+        answered, description = load_preview(url)
+        if answered:
+            if description:
+                previews[url] = description
+        else:
+            pending.append(url)
+
+    if not pending:
+        return previews
+
+    try:
+        timeout = ClientTimeout(total=PREVIEW_TIMEOUT)
+        connector = aiohttp.TCPConnector(ssl=False, limit=PREVIEW_CONCURRENCY)
+        semaphore = asyncio.Semaphore(PREVIEW_CONCURRENCY)
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+            results = await asyncio.gather(
+                *(_fetch_one_preview(session, semaphore, url) for url in pending)
+            )
+        previews.update({url: text for url, text in results if text})
+    except Exception:
+        pass  # A preview is a nicety; never fail a section over one
+
+    return previews
 
 # Height budget for HN tooltips. macOS draws NSMenu tooltips centred on the pointer and
 # never shrinks or re-anchors them, so a tooltip taller than ~2x the hovered row's distance
@@ -424,48 +583,15 @@ def format_stlpr_headline(article: Article) -> str:
     return f"-- {display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
 
 
-async def fetch_rss_section(buffer, title, home_url, color, feeds, max_items=MAX_TOPIC_HEADLINES, exclude=None,
-                            per_feed_max=None):
-    """Render a section from one or more RSS/Atom feeds, merged newest-first.
+async def fetch_hn_topic(session, queries, max_items=MAX_TOPIC_HEADLINES, since_epoch=None):
+    """Search HN story titles via Algolia for exact-phrase queries; dedupe, newest first.
 
-    feeds: list of (feed_url, tag) tuples; a failing feed is skipped, not fatal.
-    exclude: optional regex — entries whose title matches are skipped (feed boilerplate).
-    per_feed_max: optional cap per feed, so a high-volume source can't crowd out the others.
+    since_epoch keeps a quiet topic honest: without it these searches happily return the same
+    hits for months, because a niche phrase has no fresher stories to offer.
     """
-    buffer.write(f"{title} | href={home_url} color={color}\n")
-
-    def sync_fetch():
-        items = []
-        for feed_url, tag in feeds:
-            try:
-                feed = feedparser.parse(feed_url)
-                for entry in (feed.entries[:per_feed_max] if per_feed_max else feed.entries):
-                    if exclude and re.search(exclude, entry.get('title', '')):
-                        continue
-                    published = entry.get('published_parsed') or entry.get('updated_parsed')
-                    entry_title = entry.get('title', 'Untitled')
-                    link = entry.get('link', '')
-                    summary_html = entry.get('summary', '')
-                    summary_text = BeautifulSoup(summary_html, 'html.parser').get_text(' ', strip=True)
-                    items.append((published or time.gmtime(0), entry_title, link, tag, summary_text))
-            except Exception:
-                continue
-        items.sort(key=lambda item: item[0], reverse=True)
-        return items[:max_items]
-
-    try:
-        items = await asyncio.to_thread(sync_fetch)
-        if not items:
-            buffer.write("--⚠️ No articles available | color=gray\n")
-            return
-        for _, entry_title, link, tag, summary_text in items:
-            buffer.write(format_headline(entry_title, link, tags=[tag], summary=summary_text or None))
-    except Exception as e:
-        buffer.write(f"--⚠️ Error fetching {title}: {e} | color=red\n")
-
-
-async def fetch_hn_topic(session, queries, max_items=MAX_TOPIC_HEADLINES):
-    """Search HN story titles via Algolia for exact-phrase queries; dedupe, newest first."""
+    numeric_filters = ['points>5']
+    if since_epoch:
+        numeric_filters.append(f'created_at_i>{int(since_epoch)}')
     hits_by_id = {}
     for query in queries:
         try:
@@ -474,7 +600,7 @@ async def fetch_hn_topic(session, queries, max_items=MAX_TOPIC_HEADLINES):
                 'tags': 'story',
                 'restrictSearchableAttributes': 'title',
                 'advancedSyntax': 'true',
-                'numericFilters': 'points>5',
+                'numericFilters': ','.join(numeric_filters),
                 'hitsPerPage': str(max_items),
             }
             async with session.get(ALGOLIA_SEARCH_URL, params=params) as response:
@@ -495,12 +621,8 @@ async def fetch_hn_topic(session, queries, max_items=MAX_TOPIC_HEADLINES):
     return hits[:max_items]
 
 
-async def write_hn_topic_items(buffer, session, hits):
-    """Write HN search hits as menu lines, with HN Companion summary tooltips where cached.
-
-    No llm/Gemini fallback here — niche stories are rarely worth a paid call;
-    misses fall back to a points/comments tooltip.
-    """
+async def resolve_hn_summaries(session, hits) -> dict:
+    """Map story id -> HN Companion discussion summary, local cache first, misses left out."""
     summaries = {}
     uncached_ids = []
     for hit in hits:
@@ -520,26 +642,7 @@ async def write_hn_topic_items(buffer, session, hits):
                 summaries[sid] = condensed
                 save_summary_cache(sid, condensed)
 
-    for hit in hits:
-        story_id = hit.get('objectID')
-        title = hit.get('title', 'Untitled')
-        points = hit.get('points', 0) or 0
-        num_comments = hit.get('num_comments', 0) or 0
-        formatted_title = f"[{points}↑] {title} ({num_comments}􀌪)"
-
-        summary = summaries.get(story_id, f"{points} points, {num_comments} comments")
-        formatted_summary = format_hn_tooltip(summary)
-        tooltip_text = (
-            formatted_summary
-            .replace("\\", "\\\\")
-            .replace("\n", "\\n")
-            .replace('"', '\\"')
-            .replace("|", "\\|")
-        )
-        formatted_title_escaped = formatted_title.replace("|", " ").replace('"', '\\"')
-        buffer.write(
-            f'-- {formatted_title_escaped} | href={HN_URL}item?id={story_id} tooltip="{tooltip_text}" trim=false\n'
-        )
+    return summaries
 
 
 async def fetch_techmeme(buffer=None):
@@ -596,24 +699,7 @@ async def fetch_hnt(buffer=None):
             hits = data.get("hits", [])[:MAX_HEADLINES]
 
             # Layered summary lookup: local cache -> HN Companion API -> llm/Gemini fallback
-            summaries = {}
-            uncached_ids = []
-            for hit in hits:
-                story_id = hit.get("objectID")
-                cached = get_cached_summary(story_id)
-                if cached:
-                    summaries[story_id] = cached
-                else:
-                    uncached_ids.append(story_id)
-
-            if uncached_ids:
-                companion_results = await asyncio.gather(
-                    *(fetch_hncompanion_summary(session, sid) for sid in uncached_ids)
-                )
-                for sid, condensed in zip(uncached_ids, companion_results):
-                    if condensed:
-                        summaries[sid] = condensed
-                        save_summary_cache(sid, condensed)
+            summaries = await resolve_hn_summaries(session, hits)
 
             # Track consecutive timeouts for early bailout on bad connections
             consecutive_timeouts = 0
@@ -683,6 +769,7 @@ async def fetch_lobsters(buffer=None):
     stories = result.select("ol.stories > li")[:MAX_HEADLINES]
     buffer.write(f"Lobste.rs | href={LOBSTERS_URL} color=#CC2200\n")
 
+    items = []
     for story in stories:
         try:
             title_elem = story.select_one(".link > a.u-url")
@@ -690,17 +777,25 @@ async def fetch_lobsters(buffer=None):
                 continue
             title = title_elem.text
             url = title_elem['href']
+            if not url.startswith('http'):
+                url = f"{LOBSTERS_URL}{url}"  # Ask-style posts link back into lobste.rs
             tags = [tag.text for tag in story.select(".tags > a")]
 
             # Try to extract description if available
             summary = ''
             desc_elem = story.select_one(".description")
             if desc_elem:
-                summary = desc_elem.text.strip()
+                summary = clean_summary(desc_elem.text)
 
-            buffer.write(format_headline(title, url, tags, summary))
+            items.append((title, url, tags, summary))
         except Exception:
             continue
+
+    # .description is the submitter's own note and is empty for nearly every link post,
+    # so read the linked article's own blurb instead
+    previews = await fetch_previews(url for _, url, _, summary in items if not summary)
+    for title, url, tags, summary in items:
+        buffer.write(format_headline(title, url, tags, summary or previews.get(url)))
 
 
 async def fetch_stltoday(buffer=None):
@@ -770,7 +865,11 @@ async def fetch_stltoday(buffer=None):
             # Error message
             buffer.write(f"--⚠️ {articles[0]}\n")
         else:
+            missing = [a.link for a in articles if a.summary in ('', 'No summary')]
+            previews = await fetch_previews(missing)
             for article in articles:
+                if article.summary in ('', 'No summary'):
+                    article.summary = previews.get(article.link, '')
                 buffer.write(format_stl_headline(article))
 
     except Exception as e:
@@ -966,7 +1065,9 @@ async def fetch_stlpr(buffer=None):
             # Error message
             buffer.write(f"--⚠️ {articles[0]}\n")
         else:
+            previews = await fetch_previews(a.link for a in articles if not a.summary)
             for article in articles:
+                article.summary = article.summary or previews.get(article.link, '')
                 buffer.write(format_stlpr_headline(article))
 
     except Exception as e:
@@ -1002,116 +1103,205 @@ async def fetch_simonwillison(buffer=None):
         buffer.write(f"--⚠️ Error fetching Simon Willison: {e} | color=red\n")
 
 
-async def fetch_mlx(buffer=None):
-    if buffer is None:
-        buffer = StringIO()
+@dataclass
+class Topic:
+    """A themed section: a handful of feeds, optionally supplemented by fresh Hacker News hits.
 
-    buffer.write(f"MLX | href=https://github.com/ml-explore/mlx color=#0071E3\n")
-
-    try:
-        timeout = ClientTimeout(total=REQUEST_TIMEOUT)
-        async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
-            hits = await fetch_hn_topic(session, ["mlx"])
-            await write_hn_topic_items(buffer, session, hits)
-
-        def sync_releases():
-            feed = feedparser.parse("https://github.com/ml-explore/mlx/releases.atom")
-            return [(entry.get('title', 'Untitled'), entry.get('link', '')) for entry in feed.entries[:3]]
-
-        for release_title, release_link in await asyncio.to_thread(sync_releases):
-            buffer.write(format_headline(f"mlx {release_title}", release_link, tags=["release"]))
-    except Exception as e:
-        buffer.write(f"--⚠️ Error fetching MLX: {e} | color=red\n")
+    max_age_days is what keeps a section honest — a feed that stops publishing (Stronger By
+    Science went quiet for months) drops out instead of filling the section with last spring.
+    """
+    name: str
+    home_url: str
+    color: str
+    feeds: tuple
+    hn_queries: tuple = ()
+    max_items: int = MAX_TOPIC_HEADLINES
+    max_age_days: int = 21
+    per_feed_max: int = 3
+    exclude: Optional[str] = None
 
 
-async def fetch_hermes(buffer=None):
-    if buffer is None:
-        buffer = StringIO()
-
-    buffer.write(f"Agentic AI | href=https://nousresearch.com color=#7C4DFF\n")
-
-    try:
-        timeout = ClientTimeout(total=REQUEST_TIMEOUT)
-        async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
-            hits = await fetch_hn_topic(session, ["hermes", "nous research"])
-            await write_hn_topic_items(buffer, session, hits)
-
-        def sync_hf_blog():
-            feed = feedparser.parse("https://huggingface.co/blog/feed.xml")
-            entries = []
-            for entry in feed.entries[:5]:
-                summary_html = entry.get('summary', '')
-                summary_text = BeautifulSoup(summary_html, 'html.parser').get_text(' ', strip=True)
-                entries.append((entry.get('title', 'Untitled'), entry.get('link', ''), summary_text))
-            return entries
-
-        for hf_title, hf_link, hf_summary in await asyncio.to_thread(sync_hf_blog):
-            buffer.write(format_headline(hf_title, hf_link, tags=["HF"], summary=hf_summary or None))
-    except Exception as e:
-        buffer.write(f"--⚠️ Error fetching Agentic AI: {e} | color=red\n")
+@dataclass
+class TopicItem:
+    when: float          # epoch seconds, for the newest-first merge
+    title: str
+    link: str            # what the row opens
+    tag: str
+    summary: str = ''
+    preview_url: str = ''  # article behind an HN discussion link, for the tooltip
 
 
-async def fetch_homelab(buffer=None):
-    if buffer is None:
-        buffer = StringIO()
-
-    await fetch_rss_section(
-        buffer, "Home Lab", "https://www.servethehome.com", "#607D8B",
-        [
+TOPICS = (
+    Topic(
+        name="Local & Agentic AI",
+        home_url="https://www.latent.space",
+        color="#7C4DFF",
+        feeds=(
+            ("https://www.latent.space/feed", "Latent Space"),
+            ("https://openai.com/news/rss.xml", "OpenAI"),
+            ("https://deepmind.google/blog/rss.xml", "DeepMind"),
+            ("https://arstechnica.com/ai/feed/", "Ars"),
+            ("https://huggingface.co/blog/feed.xml", "HF"),
+            ("https://lobste.rs/t/ai.rss", "lobsters"),
+            ("https://github.com/ml-explore/mlx/releases.atom", "mlx"),
+            ("https://github.com/ml-explore/mlx-lm/releases.atom", "mlx-lm"),
+        ),
+        hn_queries=("mlx",),
+        max_items=12,
+        max_age_days=30,
+        per_feed_max=2,
+    ),
+    Topic(
+        name="Home Lab",
+        home_url="https://www.servethehome.com",
+        color="#607D8B",
+        feeds=(
             ("https://www.servethehome.com/feed/", "STH"),
             ("https://selfh.st/rss/", "selfh.st"),
-        ],
-    )
-
-    try:
-        timeout = ClientTimeout(total=REQUEST_TIMEOUT)
-        async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
-            hits = await fetch_hn_topic(session, ["homelab"], max_items=5)
-            await write_hn_topic_items(buffer, session, hits)
-    except Exception:
-        pass  # RSS half of the section already rendered
-
-
-async def fetch_nba(buffer=None):
-    if buffer is None:
-        buffer = StringIO()
-
-    await fetch_rss_section(
-        buffer, "NBA", "https://www.espn.com/nba/", "#C9082A",
-        [
+            ("https://www.jeffgeerling.com/blog.xml", "Geerling"),
+        ),
+        hn_queries=("homelab", "self-hosted"),
+        max_age_days=30,
+    ),
+    Topic(
+        name="NBA",
+        home_url="https://www.espn.com/nba/",
+        color="#C9082A",
+        feeds=(
             ("https://www.espn.com/espn/rss/nba/news", "ESPN"),
             ("https://basketball.realgm.com/rss/wiretap/0/0.xml", "RealGM"),
-        ],
+        ),
+        max_age_days=7,
+        per_feed_max=4,
         exclude=r"Get Your Latest NBA News",
-    )
-
-
-async def fetch_ev_solar(buffer=None):
-    if buffer is None:
-        buffer = StringIO()
-
-    await fetch_rss_section(
-        buffer, "EV / Solar", "https://electrek.co", "#2E7D32",
-        [
+    ),
+    Topic(
+        name="EV / Solar",
+        home_url="https://electrek.co",
+        color="#2E7D32",
+        feeds=(
             ("https://electrek.co/feed/", "Electrek"),
             ("https://www.pv-magazine.com/feed/", "PV"),
             ("https://www.canarymedia.com/rss", "Canary"),
-        ],
-        per_feed_max=4,
-    )
+        ),
+        max_age_days=7,
+    ),
+    Topic(
+        name="Fitness 50+",
+        home_url="https://peterattiamd.com",
+        color="#E91E63",
+        feeds=(
+            ("https://peterattiamd.com/feed/", "Attia"),
+            ("https://www.physiologicallyspeaking.com/feed", "Physiology"),
+            ("https://www.outsideonline.com/health/training-performance/feed/", "Outside"),
+            ("https://www.barbellmedicine.com/feed/", "Barbell Med"),
+            ("https://www.strongerbyscience.com/feed/", "SBS"),
+        ),
+        max_age_days=45,
+    ),
+)
 
 
-async def fetch_fitness(buffer=None):
+def dedupe_topic_items(items, max_items):
+    """Newest first, one row per story — the same piece often lands in two feeds and on HN."""
+    seen_titles, seen_links, deduped = set(), set(), []
+    for item in sorted(items, key=lambda entry: entry.when, reverse=True):
+        title_key = re.sub(r'\W+', ' ', item.title.lower()).strip()
+        link_key = (item.preview_url or item.link).split('?')[0].rstrip('/')
+        if title_key in seen_titles or (link_key and link_key in seen_links):
+            continue
+        seen_titles.add(title_key)
+        seen_links.add(link_key)
+        deduped.append(item)
+        if len(deduped) >= max_items:
+            break
+    return deduped
+
+
+async def fetch_topic_hn_items(topic, cutoff):
+    """Hacker News hits for a topic, newer than cutoff, with discussion summaries where cached.
+
+    No llm/Gemini fallback here — niche stories are rarely worth a paid call; a story without a
+    cached discussion summary falls back to the linked article's own blurb in render_topic.
+    """
+    try:
+        timeout = ClientTimeout(total=REQUEST_TIMEOUT)
+        async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
+            hits = await fetch_hn_topic(session, topic.hn_queries,
+                                        max_items=topic.per_feed_max, since_epoch=cutoff)
+            summaries = await resolve_hn_summaries(session, hits)
+    except Exception:
+        return []  # The feeds carry the section on their own
+
+    items = []
+    for hit in hits:
+        story_id = hit.get('objectID')
+        summary = summaries.get(story_id)
+        items.append(TopicItem(
+            when=hit.get('created_at_i', 0) or 0,
+            title=hit.get('title', 'Untitled'),
+            link=f"{HN_URL}item?id={story_id}",
+            tag=f"{hit.get('points', 0) or 0}↑ HN",
+            summary=format_hn_tooltip(summary) if summary else '',
+            preview_url=hit.get('url') or '',
+        ))
+    return items
+
+
+async def render_topic(topic: Topic, buffer=None):
+    """Render one topic section: its feeds merged newest-first inside the recency window."""
     if buffer is None:
         buffer = StringIO()
 
-    await fetch_rss_section(
-        buffer, "Fitness 50+", "https://www.strongerbyscience.com", "#E91E63",
-        [
-            ("https://www.strongerbyscience.com/feed/", "SBS"),
-            ("https://peterattiamd.com/feed/", "Attia"),
-        ],
+    buffer.write(f"{topic.name} | href={topic.home_url} color={topic.color}\n")
+    cutoff = time.time() - topic.max_age_days * 86400
+
+    parsed = await asyncio.gather(
+        *(asyncio.to_thread(feedparser.parse, feed_url) for feed_url, _ in topic.feeds),
+        return_exceptions=True,
     )
+
+    items = []
+    for (_, tag), feed in zip(topic.feeds, parsed):
+        if isinstance(feed, BaseException):
+            continue  # A failing feed is skipped, not fatal
+        kept = 0
+        for entry in getattr(feed, 'entries', []):
+            if kept >= topic.per_feed_max:
+                break
+            title = entry.get('title', 'Untitled')
+            if topic.exclude and re.search(topic.exclude, title):
+                continue
+            published = entry.get('published_parsed') or entry.get('updated_parsed')
+            when = calendar.timegm(published) if published else 0
+            if when < cutoff:
+                continue
+            summary_html = entry.get('summary', '')
+            items.append(TopicItem(
+                when=when,
+                title=title,
+                link=entry.get('link', ''),
+                tag=tag,
+                summary=clean_summary(BeautifulSoup(summary_html, 'html.parser').get_text(' ', strip=True)),
+            ))
+            kept += 1
+
+    if topic.hn_queries:
+        items.extend(await fetch_topic_hn_items(topic, cutoff))
+
+    items = dedupe_topic_items(items, topic.max_items)
+    if not items:
+        buffer.write(f"--No stories in the last {topic.max_age_days} days | color=gray\n")
+        return
+
+    previews = await fetch_previews(
+        item.preview_url or item.link
+        for item in items if len(item.summary) < PREVIEW_SHORT_SUMMARY
+    )
+    for item in items:
+        preview = previews.get(item.preview_url or item.link, '')
+        summary = max((item.summary, preview), key=len)
+        buffer.write(format_headline(item.title, item.link, tags=[item.tag], summary=summary or None))
 
 
 async def main():
@@ -1120,6 +1310,8 @@ async def main():
     print("---")
 
     start = time.time()
+    prune_cache(PREVIEW_CACHE_DIR, PREVIEW_PRUNE_DAYS)
+    prune_cache(CACHE_DIR, PREVIEW_PRUNE_DAYS)
 
     # Section order matters: a submenu opens level with its parent row, and macOS clips
     # tooltips that extend above the screen. Hacker News carries the tallest tooltips,
@@ -1132,12 +1324,7 @@ async def main():
         fetch_and_buffer(fetch_lobsters),
         fetch_and_buffer(fetch_hnt),
         fetch_and_buffer(fetch_simonwillison),
-        fetch_and_buffer(fetch_mlx),
-        fetch_and_buffer(fetch_hermes),
-        fetch_and_buffer(fetch_homelab),
-        fetch_and_buffer(fetch_nba),
-        fetch_and_buffer(fetch_ev_solar),
-        fetch_and_buffer(fetch_fitness)
+        *(fetch_and_buffer(functools.partial(render_topic, topic)) for topic in TOPICS),
     )
 
     # Print each section sequentially
