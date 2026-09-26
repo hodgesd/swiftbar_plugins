@@ -698,6 +698,50 @@ async def summarize_with_llm(session, hits, cfg: dict, summaries: dict) -> set:
         warn("Hacker News llm budget exhausted; remaining stories show comment counts")
     return failed
 
+
+async def summarize_cli(story_id: str, model: Optional[str], options: Optional[dict]) -> int:
+    """`--summarize`: run one story through the llm path, bypassing every cache, and report."""
+    cfg = dict(summary_config())
+    if model:
+        cfg['summary_model'] = model
+    if options is not None:
+        cfg['summary_options'] = options
+    timeout = ClientTimeout(total=REQUEST_TIMEOUT)
+    async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(ssl=False)) as session:
+        item = await fetch_hn_thread(session, story_id)
+    if not item:
+        print(f"no Algolia item for story {story_id}", file=sys.stderr)
+        return 1
+    document = flatten_hn_thread(item, cfg['thread_char_budget'])
+    kept = document.split('\nComments:\n', 1)[1].count('\n')
+    print(f"story:   {story_id} — {item.get('title')}")
+    print(f"thread:  {len(document):,} chars; {kept} of {count_comments(item)} comments kept")
+    print(f"model:   {cfg['summary_model']}  options: {json.dumps(cfg['summary_options'])}")
+    started = time.monotonic()
+    try:
+        try:
+            raw = run_llm(document, SUMMARY_INSTRUCTION, cfg, cfg['llm_timeout'] * 3, cfg['summary_options'])
+        except LlmOptionRejected as exc:
+            print(f"options rejected, retrying without: {exc}")
+            raw = run_llm(document, SUMMARY_INSTRUCTION, cfg, cfg['llm_timeout'] * 3, {})
+    except Exception as exc:
+        print(f"failed after {time.monotonic() - started:.1f}s: {exc}", file=sys.stderr)
+        return 1
+    elapsed = time.monotonic() - started
+    summary = sanitize_llm_summary(raw)
+    tooltip = format_hn_tooltip(summary) if summary else ''
+    over = "  (over llm_timeout)" if elapsed > cfg['llm_timeout'] else ""
+    print(f"elapsed: {elapsed:.1f}s{over}")
+    print(f"tooltip: {estimate_tooltip_lines(tooltip)} lines of {HN_TOOLTIP_MAX_LINES}, "
+          f"{len(summary)} chars")
+    print("---")
+    print(summary or "(nothing usable in the reply)")
+    if DEBUG:
+        print("--- raw ---")
+        print(raw)
+    return 0 if summary else 1
+
+
 # Constants
 TECHMEME_URL = "https://www.techmeme.com/"
 HN_URL = "https://news.ycombinator.com/"
@@ -1634,5 +1678,24 @@ async def main():
     print("Refresh | refresh=true")
 
 
+def parse_cli(argv):
+    """SwiftBar runs the plugin with no arguments. `--summarize <id> [--model M] [-o k=v ...]`
+    is the bake-off hook: one story through the llm path, no caches touched."""
+    import argparse
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--summarize', metavar='STORY_ID')
+    parser.add_argument('--model')
+    parser.add_argument('-o', '--option', action='append', metavar='KEY=VALUE',
+                        help='replace summary_options; "-o none" sends no options')
+    args, _ = parser.parse_known_args(argv)
+    options = None
+    if args.option:
+        options = {} if args.option == ['none'] else dict(opt.split('=', 1) for opt in args.option)
+    return args, options
+
+
 if __name__ == "__main__":
+    cli, cli_options = parse_cli(sys.argv[1:])
+    if cli.summarize:
+        sys.exit(asyncio.run(summarize_cli(cli.summarize, cli.model, cli_options)))
     asyncio.run(main())
