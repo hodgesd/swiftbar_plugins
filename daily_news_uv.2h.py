@@ -32,17 +32,95 @@ from bs4 import BeautifulSoup, Tag
 import hashlib
 import json
 import os
+import shutil
 import subprocess
+import sys
+import time
 from urllib.parse import urlsplit
 
-# Cache directory for HN comment summaries
+# Cache directory for HN comment summaries. A story's file holds either a summary (from HN
+# Companion or the llm path) or a miss marker: the llm path failed for it recently.
 CACHE_DIR = os.path.expanduser("~/.cache/swiftbar_hn_summaries")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
+# ── Discussion summaries via the llm CLI ─────────────────────────────────────────────────
+# Only the front-page section pays for a summary, and only for stories that missed both the
+# local cache and HN Companion. Settings live in ~/.config/swiftbar-plugins/daily_news.json
+# (optional; every key has a default), the same convention as software_versions.2h.py:
+#   "summaries"          true                                   false turns the llm path off
+#   "summary_model"      "openrouter/google/gemini-2.5-flash"   passed to `llm -m`
+#   "summary_options"    {"reasoning_effort": "low",            passed as `-o key value`; max_tokens
+#                         "max_tokens": 4096}                   covers reasoning + reply, and keeps
+#                                                               OpenRouter's per-call credit hold small
+#   "llm_path"           `llm` on PATH, else ~/.local/bin/llm   SwiftBar's PATH lacks ~/.local/bin
+#   "llm_timeout"        20                                     seconds per call
+#   "thread_char_budget" 80000                                  thread text per story (~20k tokens)
+# DAILY_NEWS_SUMMARY_MODEL in the environment overrides summary_model (bake-offs), and
+# DAILY_NEWS_DEBUG=1 prints per-story diagnostics to stderr.
+CONFIG_PATH = os.path.expanduser("~/.config/swiftbar-plugins/daily_news.json")
+DEBUG = os.environ.get("DAILY_NEWS_DEBUG") == "1"
+
+HN_LLM_CONCURRENCY = 3               # llm processes in flight at once
+HN_LLM_SECTION_BUDGET = 60           # seconds the Hacker News section may spend on llm calls
+HN_LLM_MAX_CONSECUTIVE_TIMEOUTS = 3  # then stop trying for this run (bad connection)
+HN_LLM_MISS_TTL_HOURS = 6            # a failed story is not retried every refresh while on the front page
+HN_LLM_MIN_COMMENTS = 3              # fewer is not a discussion worth a paid call
+HN_COMMENT_MAX_CHARS = 600
+HN_STORY_TEXT_MAX_CHARS = 1500       # Ask HN / Tell HN body text
+ALGOLIA_ITEM_URL = "https://hn.algolia.com/api/v1/items/"
+
+# The tooltip code expects exactly this shape: format_hn_tooltip splits paragraphs on blank
+# lines and fit_tooltip_lines drops whole trailing "• " bullets first, so the model is asked
+# for the layout condense_hncompanion_summary produces. Both sources then render identically.
+SUMMARY_INSTRUCTION = (
+    "Summarize the Hacker News discussion above for a short tooltip. Output exactly this, as "
+    "plain text: one overview paragraph of 2-3 sentences; a blank line; then 3-5 bullet lines, "
+    "each formatted \"• Theme — one sentence\" (a 2-5 word theme, an em dash, one sentence). "
+    "Cover the key insights and the main disagreements. No headers, no bold, no markdown, no "
+    "preamble, nothing after the bullets."
+)
+
+
+def debug(msg: str) -> None:
+    if DEBUG:
+        print(f"[daily_news] {msg}", file=sys.stderr)
+
+
+def warn(msg: str) -> None:
+    print(f"[daily_news] {msg}", file=sys.stderr)
+
+
+@functools.lru_cache(maxsize=None)
+def summary_config() -> dict:
+    """Settings for the llm summary path. The config file is optional; defaults work without it."""
+    cfg = {}
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH) as f:
+                cfg = json.load(f) or {}
+        except Exception as exc:
+            warn(f"ignoring unreadable {CONFIG_PATH}: {exc}")
+    options = cfg.get("summary_options", {"reasoning_effort": "low", "max_tokens": 4096})
+    # Never a literal home directory: the plugin runs as a different user on the mini
+    llm_path = cfg.get("llm_path") or shutil.which("llm") or "~/.local/bin/llm"
+    return {
+        "summaries": bool(cfg.get("summaries", True)),
+        "summary_model": (os.environ.get("DAILY_NEWS_SUMMARY_MODEL")
+                          or str(cfg.get("summary_model", "openrouter/google/gemini-2.5-flash"))),
+        "summary_options": dict(options) if isinstance(options, dict) else {},
+        "llm_path": os.path.expanduser(str(llm_path)),
+        "llm_timeout": float(cfg.get("llm_timeout", 20)),
+        "thread_char_budget": int(cfg.get("thread_char_budget", 80000)),
+    }
+
+
+def _cache_path(story_id: str) -> str:
+    return os.path.join(CACHE_DIR, f"{story_id}.json")
+
 
 def get_cached_summary(story_id: str) -> Optional[str]:
-    """Retrieve cached summary for a HN story."""
-    cache_file = os.path.join(CACHE_DIR, f"{story_id}.json")
+    """Retrieve cached summary for a HN story. A miss marker carries no summary, so it reads as None."""
+    cache_file = _cache_path(story_id)
     if os.path.exists(cache_file):
         try:
             with open(cache_file, 'r') as f:
@@ -54,10 +132,9 @@ def get_cached_summary(story_id: str) -> Optional[str]:
 
 
 def save_summary_cache(story_id: str, summary: str) -> None:
-    """Save summary to cache."""
-    cache_file = os.path.join(CACHE_DIR, f"{story_id}.json")
+    """Save summary to cache (replacing any miss marker)."""
     try:
-        with open(cache_file, 'w') as f:
+        with open(_cache_path(story_id), 'w') as f:
             json.dump({
                 'story_id': story_id,
                 'summary': summary,
@@ -67,47 +144,30 @@ def save_summary_cache(story_id: str, summary: str) -> None:
         pass  # Silently fail on cache write
 
 
-def get_hn_discussion_summary(story_id: str) -> str:
-    """Fetch HN discussion summary using LLM with caching."""
-    # Check cache first
-    cached = get_cached_summary(story_id)
-    if cached:
-        return cached
-
+def save_miss_marker(story_id: str) -> None:
+    """Remember that the llm path failed for this story. Never stores a failure as a summary."""
     try:
-        # Run llm command with HN plugin (use absolute path for SwiftBar compatibility)
-        cmd = [
-            "/Users/hodgesd/.local/bin/llm",
-            "-m",
-            "gemini-2.5-flash",
-            "-f",
-            f"hn:{story_id}",
-            "summarize this discussion. 2 structured paragraphs max. focus on key insights and disagreements.",
-        ]
+        with open(_cache_path(story_id), 'w') as f:
+            json.dump({
+                'story_id': story_id,
+                'miss': True,
+                'timestamp': datetime.datetime.now().isoformat()
+            }, f)
+    except Exception:
+        pass
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=15,  # Gemini 2.5 Flash: 1-3s typical, 15s allows generous buffer
-        )
 
-        if result.returncode == 0:
-            summary = result.stdout.strip()
-            # Cache the result
-            save_summary_cache(story_id, summary)
-            return summary
-        else:
-            return "See HN discussion"
+def has_fresh_miss_marker(story_id: str) -> bool:
+    """True while a miss marker is younger than HN_LLM_MISS_TTL_HOURS. Companion is still tried."""
+    path = _cache_path(story_id)
+    try:
+        age_hours = (time.time() - os.path.getmtime(path)) / 3600
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        return False
+    return bool(data.get('miss')) and not data.get('summary') and age_hours < HN_LLM_MISS_TTL_HOURS
 
-    except subprocess.TimeoutExpired:
-        return "See HN discussion"
-    except FileNotFoundError:
-        return "See HN discussion"  # Fallback when llm not installed
-    except Exception as e:
-        return "See HN discussion"
-
-import time
 from io import StringIO
 from requests.adapters import HTTPAdapter, Retry
 
@@ -326,7 +386,7 @@ def fit_tooltip_lines(text: str, max_lines: int = HN_TOOLTIP_MAX_LINES) -> str:
         lines.append(f'… +{dropped} more theme{"s" if dropped > 1 else ""} on HN')
     text = '\n'.join(lines)
 
-    # Fallback for long bullet-less summaries (e.g. the Gemini path): shave a line at a time
+    # Fallback for long bullet-less summaries (a model that ignored the format): shave a line at a time
     while estimate_tooltip_lines(text) > max_lines and len(text) > HN_TOOLTIP_WRAP_CHARS:
         text = cap_tooltip(text.rstrip('…'), len(text) - HN_TOOLTIP_WRAP_CHARS)
     return text
@@ -409,6 +469,234 @@ async def fetch_hncompanion_summary(session: aiohttp.ClientSession, story_id: st
         return None
 
 
+async def fetch_hn_thread(session: aiohttp.ClientSession, story_id: str) -> Optional[dict]:
+    """The story and its full comment tree from Algolia's items endpoint; None on any failure."""
+    try:
+        async with session.get(f"{ALGOLIA_ITEM_URL}{story_id}") as response:
+            if response.status != 200:
+                return None
+            return await response.json()
+    except Exception:
+        return None
+
+
+def _comment_text(node: dict) -> str:
+    """Plain text of one Algolia node; '' for deleted, dead or empty comments."""
+    html = node.get('text')
+    if not html or not node.get('author'):
+        return ''
+    text = re.sub(r'\s+', ' ', BeautifulSoup(html, 'html.parser').get_text(' ', strip=True)).strip()
+    if not text or re.fullmatch(r'\[(deleted|dead|flagged|removed)\]', text, re.I):
+        return ''
+    return text
+
+
+def count_comments(item: dict) -> int:
+    return sum(1 + count_comments(child) for child in item.get('children') or [])
+
+
+def flatten_hn_thread(item: dict, char_budget: int) -> str:
+    """Render an Algolia item tree as indented "author: text" lines under a title header.
+
+    Depth-first order is kept, but the budget is handed out breadth-first: every top-level
+    comment first, then their direct replies, then deeper tails while room remains, and a
+    reply is only kept when its parent was. A busy thread therefore loses its deep
+    sub-arguments before it loses a single top-level take.
+    """
+    url = item.get('url') or f"{HN_URL}item?id={item.get('id')}"
+    header = f"Title: {item.get('title') or 'Untitled'}\nURL: {url}\n"
+    story_text = _comment_text(item)
+    if story_text:
+        header += f"Post: {cap_tooltip(story_text, HN_STORY_TEXT_MAX_CHARS)}\n"
+    header += "\nComments:\n"
+
+    nodes = []  # (depth, parent index, rendered line) in depth-first order
+
+    def walk(children, depth, parent):
+        for child in children or []:
+            text = _comment_text(child)
+            if text:
+                index = len(nodes)
+                indent = '  ' * depth
+                nodes.append((depth, parent, f"{indent}{child.get('author')}: "
+                                             f"{cap_tooltip(text, HN_COMMENT_MAX_CHARS)}\n"))
+                walk(child.get('children'), depth + 1, index)
+            else:
+                # A deleted comment's replies still belong to the thread: attach them one level up
+                walk(child.get('children'), depth, parent)
+
+    walk(item.get('children'), 0, None)
+
+    kept = set()
+    used = len(header)
+    for wanted in (0, 1, None):  # passes: top-level, first replies, then everything deeper
+        for index, (depth, parent, line) in enumerate(nodes):
+            if index in kept or (depth != wanted if wanted is not None else depth < 2):
+                continue
+            if parent is not None and parent not in kept:
+                continue
+            if used + len(line) > char_budget:
+                continue
+            kept.add(index)
+            used += len(line)
+
+    return header + ''.join(line for index, (_, _, line) in enumerate(nodes) if index in kept)
+
+
+def sanitize_llm_summary(text: str) -> str:
+    """Coerce a model reply into the overview + "• Theme — sentence" bullets the tooltip expects.
+
+    Strips code fences, bold and headers; normalises "-", "*" and numbered bullets to "• ";
+    folds wrapped bullet continuations back onto their bullet. '' when nothing usable is left.
+    """
+    text = (text or '').replace('\r', '')
+    text = re.sub(r'^\s*```[\w-]*\s*$', '', text, flags=re.M)
+    text = text.replace('**', '')
+    overview, bullets = [], []
+    for raw in text.split('\n'):
+        line = re.sub(r'\s+', ' ', raw).strip()
+        line = re.sub(r'^#+\s*', '', line)
+        line = re.sub(r'^(overview|summary)\s*:\s*', '', line, flags=re.I)
+        if not line:
+            continue
+        bullet = re.match(r'^(?:[-*•·▪◦]|\d+[.)])\s*(.+)$', line)
+        if bullet:
+            body = bullet.group(1).strip()
+            if ' — ' not in body:
+                # "Theme: sentence" / "Theme - sentence" -> "Theme — sentence"
+                body = re.sub(r'^(.{2,60}?)\s*(?::\s|\s-{1,2}\s|\s–\s)\s*', r'\1 — ', body, count=1)
+            bullets.append(f'• {body}')
+        elif not bullets:
+            overview.append(line)
+        else:
+            bullets[-1] = f'{bullets[-1]} {line}'
+    parts = [' '.join(overview).strip(), '\n'.join(bullets)]
+    condensed = '\n\n'.join(part for part in parts if part)
+    if len(condensed) > 1200:
+        condensed = condensed[:1200].rsplit(' ', 1)[0] + '…'
+    return condensed
+
+
+class LlmDisabled(Exception):
+    """A failure no per-story retry can fix: binary missing, unknown model, auth or credits."""
+
+
+class LlmOptionRejected(Exception):
+    """The model or plugin refused one of summary_options; retry without them."""
+
+
+def llm_error_text(stderr: str) -> str:
+    """The human-readable part of an llm failure: the API's message fields when it dumped a JSON
+    error (OpenRouter's run to a few hundred chars of metadata), else the last 300 chars."""
+    messages = re.findall(r"""['"]message['"]:\s*['"]([^'"]{6,})['"]""", stderr)
+    text = ' | '.join(dict.fromkeys(messages)) if messages else stderr
+    return text[-300:] if len(text) > 300 else text
+
+
+def run_llm(document: str, instruction: str, cfg: dict, timeout: float, options: dict) -> str:
+    """One llm call with `document` on stdin and `instruction` as the prompt; the raw reply.
+
+    Raises LlmDisabled, LlmOptionRejected, subprocess.TimeoutExpired, or RuntimeError.
+    """
+    cmd = [cfg['llm_path'], '-m', cfg['summary_model'], '--no-stream']
+    for key, value in sorted(options.items()):
+        cmd += ['-o', str(key), str(value)]
+    cmd.append(instruction)
+    try:
+        result = subprocess.run(
+            cmd, input=document, capture_output=True, text=True, encoding='utf-8',
+            errors='replace', timeout=timeout,
+            env={**os.environ, 'PYTHONIOENCODING': 'utf-8'},  # SwiftBar may run us under a C locale
+        )
+    except FileNotFoundError:
+        raise LlmDisabled(f"llm not found at {cfg['llm_path']}")
+    except OSError as exc:
+        raise LlmDisabled(f"cannot run {cfg['llm_path']}: {exc}")
+    if result.returncode == 0:
+        return result.stdout
+    stderr = ' '.join((result.stderr or '').split())
+    tail = llm_error_text(stderr)
+    if re.search(r'unknown model', stderr, re.I):
+        raise LlmDisabled(f"model '{cfg['summary_model']}' is unknown to {cfg['llm_path']} "
+                          f"(plugin not installed?): {tail}")
+    # Account-level trouble: no key, bad key, or an OpenRouter balance that cannot cover the
+    # call (402, or the in-flight budget it derives from the balance). No story can succeed.
+    if re.search(r'no key found|api.?key|unauthori[sz]ed|authentication|\bcredits?\b'
+                 r'|rate.?limit|in-flight|\b40[123]\b|\b429\b', stderr, re.I):
+        raise LlmDisabled(f"llm could not reach {cfg['summary_model']}: {tail}")
+    if options and re.search('|'.join(re.escape(key) for key in options)
+                             + r'|not a valid option|extra inputs are not permitted', stderr, re.I):
+        raise LlmOptionRejected(tail)
+    raise RuntimeError(f"llm exit {result.returncode}: {tail}")
+
+
+async def summarize_with_llm(session, hits, cfg: dict, summaries: dict) -> set:
+    """Fill `summaries` from the llm path for the hits given; returns the ids that were tried and
+    failed. At most HN_LLM_CONCURRENCY calls run at once and the whole batch stops at
+    HN_LLM_SECTION_BUDGET seconds. Per-story failures leave a miss marker; a run-level failure
+    (binary, model, auth) logs one line and disables the path for the rest of the run.
+    """
+    failed = set()
+    state = {'disabled': False, 'consecutive_timeouts': 0, 'options': cfg['summary_options']}
+    deadline = time.monotonic() + HN_LLM_SECTION_BUDGET
+    semaphore = asyncio.Semaphore(HN_LLM_CONCURRENCY)
+
+    async def one(hit):
+        story_id = hit.get('objectID')
+        async with semaphore:
+            if state['disabled'] or state['consecutive_timeouts'] >= HN_LLM_MAX_CONSECUTIVE_TIMEOUTS:
+                return
+            item = await fetch_hn_thread(session, story_id)
+            if not item:
+                debug(f"{story_id}: no Algolia thread")
+                return  # free to retry next run
+            document = flatten_hn_thread(item, cfg['thread_char_budget'])
+            remaining = deadline - time.monotonic()
+            if remaining < 3:
+                return  # section budget spent; not this story's fault
+            timeout = min(cfg['llm_timeout'], remaining)
+            try:
+                while True:
+                    try:
+                        raw = await asyncio.to_thread(
+                            run_llm, document, SUMMARY_INSTRUCTION, cfg, timeout, state['options'])
+                        break
+                    except LlmOptionRejected as exc:
+                        warn(f"{cfg['summary_model']} rejected summary_options "
+                             f"{state['options']}; retrying without them: {exc}")
+                        state['options'] = {}
+            except LlmDisabled as exc:
+                if not state['disabled']:
+                    state['disabled'] = True
+                    warn(f"llm summaries off for this run: {exc}")
+                return
+            except subprocess.TimeoutExpired:
+                state['consecutive_timeouts'] += 1
+                debug(f"{story_id}: llm timed out after {timeout:.0f}s")
+                save_miss_marker(story_id)
+                failed.add(story_id)
+                return
+            except Exception as exc:
+                debug(f"{story_id}: {exc}")
+                save_miss_marker(story_id)
+                failed.add(story_id)
+                return
+            state['consecutive_timeouts'] = 0
+            summary = sanitize_llm_summary(raw)
+            if summary:
+                summaries[story_id] = summary
+                save_summary_cache(story_id, summary)
+            else:
+                debug(f"{story_id}: empty summary from {cfg['summary_model']}")
+                save_miss_marker(story_id)
+                failed.add(story_id)
+
+    try:
+        await asyncio.wait_for(asyncio.gather(*(one(hit) for hit in hits)),
+                               timeout=HN_LLM_SECTION_BUDGET + 5)
+    except asyncio.TimeoutError:
+        warn("Hacker News llm budget exhausted; remaining stories show comment counts")
+    return failed
 
 # Constants
 TECHMEME_URL = "https://www.techmeme.com/"
@@ -718,46 +1006,35 @@ async def fetch_hnt(buffer=None):
 
             hits = data.get("hits", [])[:MAX_HEADLINES]
 
-            # Layered summary lookup: local cache -> HN Companion API -> llm/Gemini fallback
+            # Layered summary lookup: local cache -> HN Companion API -> llm (front page only)
             summaries = await resolve_hn_summaries(session, hits)
-
-            # Track consecutive timeouts for early bailout on bad connections
-            consecutive_timeouts = 0
-            max_consecutive_timeouts = 3  # Stop trying after 3 consecutive timeouts
+            failed = set()
+            cfg = summary_config()
+            if cfg['summaries']:
+                wanted = [
+                    hit for hit in hits
+                    if hit.get('objectID') not in summaries
+                    and (hit.get('num_comments') or 0) >= HN_LLM_MIN_COMMENTS
+                    and not has_fresh_miss_marker(hit.get('objectID'))
+                ]
+                if wanted:
+                    failed = await summarize_with_llm(session, wanted, cfg, summaries)
 
             for hit in hits:
                 title = hit.get("title", "Untitled")
                 story_id = hit.get("objectID")
                 points = hit.get("points", 0)
                 num_comments = hit.get("num_comments", 0)
-                author = hit.get("author", "unknown")
 
                 # Format title with upvotes and comments
                 formatted_title = f"[{points}↑] {title} ({num_comments}􀌪)"
 
                 if story_id in summaries:
                     summary = summaries[story_id]
-                # Fetch discussion summary from LLM with timeout protection
-                # Skip LLM calls if we've had too many consecutive timeouts (bad connection)
-                elif consecutive_timeouts >= max_consecutive_timeouts:
-                    summary = f"{num_comments} comments"
+                elif story_id in failed:
+                    summary = "See HN discussion"  # the llm path ran for this story and failed
                 else:
-                    try:
-                        summary = await asyncio.wait_for(
-                            asyncio.to_thread(get_hn_discussion_summary, story_id),
-                            timeout=18.0,  # Allow time for 15s subprocess + overhead
-                        )
-                        # Reset timeout counter on success
-                        if summary != "See HN discussion":
-                            consecutive_timeouts = 0
-                        else:
-                            consecutive_timeouts += 1
-                    except asyncio.TimeoutError:
-                        consecutive_timeouts += 1
-                        summary = f"{num_comments} comments"
-                    except Exception:
-                        consecutive_timeouts += 1
-                        summary = f"{num_comments} comments"
+                    summary = f"{num_comments} comments"
 
                 # Format summary with visual structure, then escape special characters
                 formatted_summary = format_hn_tooltip(summary)
