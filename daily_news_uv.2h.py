@@ -48,8 +48,8 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 # local cache and HN Companion. Settings live in ~/.config/swiftbar-plugins/daily_news.json
 # (optional; every key has a default), the same convention as software_versions.2h.py:
 #   "summaries"          true                                   false turns the llm path off
-#   "summary_model"      "openrouter/google/gemini-2.5-flash"   passed to `llm -m`
-#   "summary_options"    {"reasoning_effort": "low",            passed as `-o key value`; max_tokens
+#   "summary_model"      "openrouter/openai/gpt-5-mini"         passed to `llm -m`
+#   "summary_options"    {"reasoning_effort": "minimal",        passed as `-o key value`; max_tokens
 #                         "max_tokens": 4096}                   covers reasoning + reply, and keeps
 #                                                               OpenRouter's per-call credit hold small
 #   "llm_path"           `llm` on PATH, else ~/.local/bin/llm   SwiftBar's PATH lacks ~/.local/bin
@@ -100,13 +100,13 @@ def summary_config() -> dict:
                 cfg = json.load(f) or {}
         except Exception as exc:
             warn(f"ignoring unreadable {CONFIG_PATH}: {exc}")
-    options = cfg.get("summary_options", {"reasoning_effort": "low", "max_tokens": 4096})
+    options = cfg.get("summary_options", {"reasoning_effort": "minimal", "max_tokens": 4096})
     # Never a literal home directory: the plugin runs as a different user on the mini
     llm_path = cfg.get("llm_path") or shutil.which("llm") or "~/.local/bin/llm"
     return {
         "summaries": bool(cfg.get("summaries", True)),
         "summary_model": (os.environ.get("DAILY_NEWS_SUMMARY_MODEL")
-                          or str(cfg.get("summary_model", "openrouter/google/gemini-2.5-flash"))),
+                          or str(cfg.get("summary_model", "openrouter/openai/gpt-5-mini"))),
         "summary_options": dict(options) if isinstance(options, dict) else {},
         "llm_path": os.path.expanduser(str(llm_path)),
         "llm_timeout": float(cfg.get("llm_timeout", 20)),
