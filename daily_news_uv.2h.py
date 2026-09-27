@@ -10,7 +10,7 @@
 # ///
 
 # <swiftbar.title>Combined Tech News</swiftbar.title>
-# <swiftbar.version>v2.2</swiftbar.version>
+# <swiftbar.version>v2.3</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Combines STLToday, STL PR, BND, Techmeme, Lobste.rs, Hacker News, Simon Willison, and the Local & Agentic AI, Home Lab, NBA, EV/Solar and Fitness 50+ topics in one dropdown</swiftbar.desc>
@@ -43,11 +43,17 @@ from urllib.parse import urlsplit
 CACHE_DIR = os.path.expanduser("~/.cache/swiftbar_hn_summaries")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# ── Discussion summaries via the llm CLI ─────────────────────────────────────────────────
-# Only the front-page section pays for a summary, and only for stories that missed both the
-# local cache and HN Companion. Settings live in ~/.config/swiftbar-plugins/daily_news.json
-# (optional; every key has a default), the same convention as software_versions.2h.py:
-#   "summaries"          true                                   false turns the llm path off
+# ── Discussion summaries ─────────────────────────────────────────────────────────────────
+# Lookup order: local cache -> the shared hn-summaries service on nixos-infra (one batched
+# request; it owns a cache and the paid call for every Mac) -> HN Companion -> the local llm
+# CLI. Only the front-page section pays for a summary, and only for stories that missed all
+# of the above; the topic sections ask the service with llm=0 and never pay. Settings live in
+# ~/.config/swiftbar-plugins/daily_news.json (optional; every key has a default), the same
+# convention as software_versions.2h.py:
+#   "summary_service_url" "http://nixos-infra-1:8090"            "" skips the service
+#   "summaries"          true                                   false turns the local llm path
+#                                                               off (sensible once the service
+#                                                               is live: it pays instead)
 #   "summary_model"      "openrouter/openai/gpt-5-mini"         passed to `llm -m`
 #   "summary_options"    {"reasoning_effort": "minimal",        passed as `-o key value`; max_tokens
 #                         "max_tokens": 4096}                   covers reasoning + reply, and keeps
@@ -59,6 +65,12 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 # DAILY_NEWS_DEBUG=1 prints per-story diagnostics to stderr.
 CONFIG_PATH = os.path.expanduser("~/.config/swiftbar-plugins/daily_news.json")
 DEBUG = os.environ.get("DAILY_NEWS_DEBUG") == "1"
+
+# The shared service answers from its cache in well under a second; a fresh front page takes
+# it a few seconds of model time. An unreachable host (laptop off the tailnet) must fail fast,
+# hence the short connect timeout; the total only matters while it is working for us.
+SERVICE_CONNECT_TIMEOUT = 5
+SERVICE_TOTAL_TIMEOUT = {True: 20, False: 5}  # keyed by llm: paid requests get time to finish
 
 HN_LLM_CONCURRENCY = 3               # llm processes in flight at once
 HN_LLM_SECTION_BUDGET = 60           # seconds the Hacker News section may spend on llm calls
@@ -104,6 +116,7 @@ def summary_config() -> dict:
     # Never a literal home directory: the plugin runs as a different user on the mini
     llm_path = cfg.get("llm_path") or shutil.which("llm") or "~/.local/bin/llm"
     return {
+        "summary_service_url": str(cfg.get("summary_service_url", "http://nixos-infra-1:8090")).rstrip("/"),
         "summaries": bool(cfg.get("summaries", True)),
         "summary_model": (os.environ.get("DAILY_NEWS_SUMMARY_MODEL")
                           or str(cfg.get("summary_model", "openrouter/openai/gpt-5-mini"))),
@@ -973,8 +986,32 @@ async def fetch_hn_topic(session, queries, max_items=MAX_TOPIC_HEADLINES, since_
     return hits[:max_items]
 
 
-async def resolve_hn_summaries(session, hits) -> dict:
-    """Map story id -> HN Companion discussion summary, local cache first, misses left out."""
+async def fetch_service_summaries(session, story_ids, llm: bool) -> dict:
+    """One batched GET to the shared hn-summaries service (docs/HN-SUMMARIES.md in nix-config).
+    {} on any failure — off the tailnet, service down, or slow — so the caller falls through."""
+    base_url = summary_config()['summary_service_url']
+    if not base_url or not story_ids:
+        return {}
+    try:
+        timeout = ClientTimeout(total=SERVICE_TOTAL_TIMEOUT[llm], connect=SERVICE_CONNECT_TIMEOUT)
+        params = {'ids': ','.join(story_ids), 'llm': '1' if llm else '0'}
+        async with session.get(f"{base_url}/hn", params=params, timeout=timeout) as response:
+            if response.status != 200:
+                debug(f"service: HTTP {response.status}")
+                return {}
+            data = await response.json()
+    except Exception as exc:
+        debug(f"service: {exc.__class__.__name__}: {exc}")
+        return {}
+    found = {sid: entry['summary'] for sid, entry in data.items()
+             if isinstance(entry, dict) and entry.get('summary')}
+    debug(f"service: {len(found)} of {len(story_ids)} ids (llm={int(llm)})")
+    return found
+
+
+async def resolve_hn_summaries(session, hits, llm: bool = False) -> dict:
+    """Map story id -> discussion summary: local cache, then the shared service, then HN
+    Companion; misses left out. llm=True lets the service spend on a miss (front page only)."""
     summaries = {}
     uncached_ids = []
     for hit in hits:
@@ -984,6 +1021,13 @@ async def resolve_hn_summaries(session, hits) -> dict:
             summaries[story_id] = cached
         else:
             uncached_ids.append(story_id)
+
+    if uncached_ids:
+        served = await fetch_service_summaries(session, uncached_ids, llm)
+        for sid, text in served.items():
+            summaries[sid] = text
+            save_summary_cache(sid, text)
+        uncached_ids = [sid for sid in uncached_ids if sid not in served]
 
     if uncached_ids:
         companion_results = await asyncio.gather(
@@ -1050,8 +1094,8 @@ async def fetch_hnt(buffer=None):
 
             hits = data.get("hits", [])[:MAX_HEADLINES]
 
-            # Layered summary lookup: local cache -> HN Companion API -> llm (front page only)
-            summaries = await resolve_hn_summaries(session, hits)
+            # Layered lookup: local cache -> shared service -> HN Companion -> llm (front page only)
+            summaries = await resolve_hn_summaries(session, hits, llm=True)
             failed = set()
             cfg = summary_config()
             if cfg['summaries']:
@@ -1562,8 +1606,9 @@ def dedupe_topic_items(items, max_items):
 async def fetch_topic_hn_items(topic, cutoff):
     """Hacker News hits for a topic, newer than cutoff, with discussion summaries where cached.
 
-    No llm/Gemini fallback here — niche stories are rarely worth a paid call; a story without a
-    cached discussion summary falls back to the linked article's own blurb in render_topic.
+    No paid call here, local or on the service (llm=0) — niche stories are rarely worth one; a
+    story without a cached discussion summary falls back to the linked article's own blurb in
+    render_topic.
     """
     try:
         timeout = ClientTimeout(total=REQUEST_TIMEOUT)
