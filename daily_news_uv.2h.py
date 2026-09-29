@@ -1164,7 +1164,7 @@ async def fetch_lobsters(buffer=None):
             url = title_elem['href']
             if not url.startswith('http'):
                 url = f"{LOBSTERS_URL}{url}"  # Ask-style posts link back into lobste.rs
-            tags = [tag.text for tag in story.select(".tags > a")]
+            tags = [tag.text for tag in story.select(".tags a")][:2]
 
             # Try to extract description if available
             summary = ''
