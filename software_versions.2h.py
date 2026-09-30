@@ -188,18 +188,15 @@ _PLUGIN_NAME = os.path.splitext(os.path.splitext(os.path.basename(__file__))[0])
 CONFIG_DIR = os.path.expanduser("~/.config/swiftbar-plugins")
 CONFIG_PATH = os.path.join(CONFIG_DIR, f"{_PLUGIN_NAME}.json")
 
-_plugin_data = os.getenv("SWIFTBAR_PLUGIN_DATA_PATH", "")
-DATA_DIR = Path(_plugin_data).parent if _plugin_data else Path.home()
-CACHE_FILE = DATA_DIR / "software_versions_cache.json"
-
-# The summary cache deliberately does NOT live in DATA_DIR. Under SwiftBar that
-# resolves to a directory named after the plugin's nix store path, so every
-# `nix flake update swiftbar_plugins` starts a fresh one -- there are already
-# several orphaned copies of the cache above. Harmless for a 72h convenience
-# cache that refetches for free; not harmless for a cache whose whole job is to
-# stop us paying for the same summary twice. This path survives plugin updates.
+# The caches deliberately do NOT live under the SwiftBar plugin data path.
+# That resolves to a directory named after the plugin's nix store path, so
+# every `nix flake update swiftbar_plugins` starts a fresh one -- there are
+# already several orphaned copies above. Harmless for a 72h convenience cache
+# that refetches for free; not harmless for a cache whose whole job is to stop
+# us paying for the same summary twice. These paths survive plugin updates.
 _XDG_CACHE = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
 SUMMARY_DIR = Path(_XDG_CACHE) / "swiftbar-plugins"
+CACHE_FILE = SUMMARY_DIR / "software_versions_cache.json"
 SUMMARY_FILE = SUMMARY_DIR / "software_versions_summaries.json"
 SUMMARY_LOCK = SUMMARY_DIR / "software_versions_summaries.lock"
 

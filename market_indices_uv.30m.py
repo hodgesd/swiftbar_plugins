@@ -29,10 +29,11 @@ LABELS = {
 }
 YAHOO_URL = "https://finance.yahoo.com/quote"
 
-_plugin_data = os.getenv("SWIFTBAR_PLUGIN_DATA_PATH", "")
-DATA_DIR = Path(_plugin_data).parent if _plugin_data else Path.home()
-STATE_FILE = DATA_DIR / "market_cycle.json"
-CACHE_FILE = DATA_DIR / "market_cache.json"
+_XDG_CACHE = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+CACHE_DIR = Path(_XDG_CACHE) / "swiftbar-plugins"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+STATE_FILE = CACHE_DIR / "market_cycle.json"
+CACHE_FILE = CACHE_DIR / "market_cache.json"
 
 HISTORY_PERIOD = "1y"
 CACHE_MAX_AGE_HOURS = 24
