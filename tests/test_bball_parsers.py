@@ -183,6 +183,104 @@ def test_vincennes_schedule_dedupes_next_event_card_and_converts_eastern():
     assert daytona.tipoff_time == datetime(2025, 10, 24, 14, 45)   # 3:45 PM Eastern -> Central
 
 
+# --- Sidearm (D2 / D3 / NAIA) -----------------------------------------------------------
+
+SIDEARM_URL = "https://mckbearcats.com/sports/mens-basketball/schedule/2025-26"
+
+
+def test_parse_sidearm_time():
+    t, tz = bb.parse_sidearm_time("7:00 PM")
+    assert (t.hour, t.minute) == (19, 0) and tz == bb.CENTRAL
+    assert bb.parse_sidearm_time("6 p.m.")[0].hour == 18
+    assert bb.parse_sidearm_time("11:00 AM")[0].hour == 11
+    assert bb.parse_sidearm_time("Noon (CT)")[0].hour == 12
+    t, tz = bb.parse_sidearm_time("12 p.m. ET")
+    assert t.hour == 12 and tz == bb.EASTERN
+    assert bb.parse_sidearm_time("2 p.m. MDT")[1] == ZoneInfo("America/Denver")
+    assert bb.parse_sidearm_time("TBA")[0] is None and bb.parse_sidearm_time("")[0] is None
+
+
+def test_sidearm_completed_season():
+    s = bb.parse_sidearm_schedule(read("sidearm_mckendree_25-26.html"), SIDEARM_URL, CITIES)
+    assert s.record == "22-8"
+    assert s.rows_seen == 7 and s.rows_parsed == 6          # the postponed game is dropped
+    by_opp = {g.opponent: g for g in s.schedule}
+    assert "Maryville University" not in by_opp
+    exh = by_opp["Southern Illinois University"]             # "[Exhibition]" moved to the note
+    assert (exh.home_away, exh.note, exh.result, exh.score) == ("Away", "Exhibition", "L", "42-83")
+    home = by_opp["Hannibal-LaGrange University"]
+    assert (home.home_away, home.result, home.score) == ("Home", "W", "80-39")
+    assert home.date.date() == date(2025, 11, 21) and home.tipoff_time == datetime(2025, 11, 21, 19, 0)
+    assert home.game_url.startswith("https://mckbearcats.com/") and home.game_url.endswith("/boxscore/19238")
+    assert by_opp["Rockhurst University"].score == "95-85"   # "W, 95-85 (2OT)"
+    far = by_opp["Malone University"]
+    assert (far.home_away, far.venue, far.local) == ("Neutral", "Gillmor Center", False)
+    glvc = by_opp["(3) University of Illinois Springfield"]  # conference tournament at UMSL
+    assert (glvc.home_away, glvc.venue, glvc.local) == ("Neutral", "Mark Twain Building", True)
+    assert glvc.date.date() == date(2026, 3, 6)
+    assert "(2) RV William Jewell College" in by_opp           # site text has a "|" after "(2)"
+    assert not any("|" in g.opponent or "|" in (g.venue or "") for g in s.schedule)
+    assert {g.opponent for g in bb.listed_games(s)} == {
+        "Hannibal-LaGrange University", "Rockhurst University", "(3) University of Illinois Springfield",
+        "(2) RV William Jewell College"}
+
+
+def test_sidearm_doubled_template_and_aria_label_times(monkeypatch):
+    """UMSL repeats each row's inner blocks and only carries the time in the aria-label."""
+    monkeypatch.setenv("BBALL_FAKE_TODAY", "2026-10-05")
+    s = bb.parse_sidearm_schedule(read("sidearm_umsl_26-27.html"), SIDEARM_URL, CITIES)
+    assert s.record == "0-0" and s.rows_seen == 5 and s.rows_parsed == 5
+    assert [g.opponent for g in s.schedule] == [
+        "Kentucky Wesleyan", "Hannibal-LaGrange", "Upper Iowa", "Parkside", "GLVC Tournament"]
+    away, lebanon, home, tbd, tourney = s.schedule
+    assert away.home_away == "Away" and away.tipoff_time == datetime(2026, 11, 9, 18, 0)   # "6 p.m."
+    assert (lebanon.home_away, lebanon.venue, lebanon.local) == ("Neutral", "Melvin Price Convocation Center", True)
+    assert lebanon.tipoff_time == datetime(2026, 11, 20, 17, 30)
+    assert home.home_away == "Home" and home.date.date() == date(2026, 12, 5) and home.tipoff_time is not None
+    assert home.result is None and home.score is None and home.game_url == SIDEARM_URL
+    assert tbd.tipoff_time is None
+    assert tourney.date.date() == date(2027, 3, 4) and tourney.tipoff_time is None and not tourney.local
+    assert [g.opponent for g in bb.listed_games(s)] == ["Hannibal-LaGrange", "Upper Iowa"]
+
+
+def test_sidearm_skips_third_party_games_and_converts_tagged_zones(monkeypatch):
+    monkeypatch.setenv("BBALL_FAKE_TODAY", "2026-10-05")
+    s = bb.parse_sidearm_schedule(read("sidearm_washu_26-27.html"), SIDEARM_URL, CITIES)
+    assert s.rows_seen == 3 and s.rows_parsed == 2
+    assert [g.opponent for g in s.schedule] == ["Bethany Lutheran College", "Hanover College"]   # not "Gustavus Adolphus vs. Transylvania"
+    home, away_site = s.schedule
+    assert home.home_away == "Home" and home.tipoff_time == datetime(2026, 11, 6, 19, 0)
+    assert away_site.home_away == "Neutral" and not away_site.local
+    assert away_site.tipoff_time == datetime(2026, 11, 21, 17, 0)        # "6 p.m. ET" -> Central
+
+
+def test_sidearm_row_without_link_and_alumni_game(monkeypatch):
+    monkeypatch.setenv("BBALL_FAKE_TODAY", "2026-10-05")
+    s = bb.parse_sidearm_schedule(read("sidearm_harris_stowe_26-27.html"), SIDEARM_URL, CITIES)
+    alumni, opener = s.schedule
+    assert (alumni.opponent, alumni.home_away, alumni.note, alumni.tipoff_time) == ("Alumni", "Home", "Exhibition", None)
+    assert opener.opponent == "Brescia University (Ky.)" and opener.tipoff_time == datetime(2026, 10, 24, 18, 0)   # "6 PM"
+    assert bb.season_state([s]) == ("pre", date(2026, 10, 24))           # the alumni game does not open the season
+
+
+def test_sidearm_record_and_empty_page():
+    assert bb.parse_sidearm_record(read("sidearm_mckendree_25-26.html")) == "22-8"
+    assert bb.parse_sidearm_record("<html></html>") is None
+    assert bb.parse_sidearm_schedule("<html></html>", SIDEARM_URL, CITIES).problem == "no schedule rows found"
+
+
+def test_small_college_key_url_and_menu_tag():
+    entry = {"name": "McKendree", "level": "D2", "base": "https://mckbearcats.com/"}
+    assert bb.small_college_key(entry) == "sidearm:mckbearcats.com"
+    assert bb.sidearm_schedule_url(entry["base"]) == SIDEARM_URL
+    mk = lambda name, level: bb.School(key=name, url="", name=name, level=level, record="3-1")
+    order = [s.name for s in bb.sort_schools([mk("WashU", "D3"), mk("Missouri Baptist", "NAIA"), mk("UMSL", "D2"), mk("McKendree", "D2")])]
+    assert order == ["McKendree", "UMSL", "WashU", "Missouri Baptist"]
+    assert bb.school_line(mk("WashU", "D3"), "").startswith("[D3]    WashU")
+    assert bb.school_line(bb.School(key="k", url="", name="Illinois"), "").startswith("[  -  ] Illinois")
+    assert {e["level"] for e in bb.DEFAULT_CONFIG["small_colleges"]} == {"D2", "D3", "NAIA"}
+
+
 # --- season state / display helpers -----------------------------------------------------
 
 def test_season_state_ignores_exhibitions():

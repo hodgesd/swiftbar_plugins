@@ -9,10 +9,10 @@
 # ///
 
 # <swiftbar.title>Local Basketball</swiftbar.title>
-# <swiftbar.version>v4.0</swiftbar.version>
+# <swiftbar.version>v4.1</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
-# <swiftbar.desc>Home games, records and rankings for local high school, JUCO and D1 basketball. Teams configurable via ~/.config/swiftbar-plugins/bball.json</swiftbar.desc>
+# <swiftbar.desc>Home games, records and rankings for local high school, JUCO, D1, D2, D3 and NAIA basketball. Teams configurable via ~/.config/swiftbar-plugins/bball.json</swiftbar.desc>
 # <swiftbar.dependencies>uv</swiftbar.dependencies>
 # <swiftbar.hideAbout>true</swiftbar.hideAbout>
 # <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
@@ -29,6 +29,8 @@ Sources
   Division I        ESPN site API (schedule, record, AP rank) + NCAA NET rankings page
   SWIC              swic.edu schedule table; record from the NJCAA Region 24 standings
   Vincennes         govutrailblazers.com schedule; record from Region 24 standings
+  D2 / D3 / NAIA    each school's own Sidearm athletics site (schedule page rows and the
+                    "Overall" record in its header); ESPN does not carry these teams
   NJCAA DI poll     NJCAA public GraphQL API (publishedPolls)
 
 Config (optional)   ~/.config/swiftbar-plugins/bball.json — every key has a default; see
@@ -87,11 +89,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
         {"espn_id": 2815, "net_name": "Lindenwood"},
     ],
     "community_colleges": {"swic": True, "vincennes": True},
+    # Any school whose athletics site runs on Sidearm (the schedule lives at
+    # <base>/sports/mens-basketball/schedule/<season>). "level" is the tag shown in the menu.
+    "small_colleges": [
+        {"name": "McKendree", "level": "D2", "base": "https://mckbearcats.com"},
+        {"name": "UMSL", "level": "D2", "base": "https://umsltritons.com"},
+        {"name": "Maryville", "level": "D2", "base": "https://maryvillesaints.com"},
+        {"name": "WashU", "level": "D3", "base": "https://washubears.com"},
+        {"name": "Harris-Stowe", "level": "NAIA", "base": "https://hornetsathletics.com"},
+        {"name": "Missouri Baptist", "level": "NAIA", "base": "https://mbuspartans.com"},
+    ],
     # A neutral-site game is listed when its venue city (D1) or tournament name (high
     # school) contains one of these.
     "local_venue_cities": [
         "St. Louis", "Saint Louis", "St Louis", "Belleville", "O'Fallon", "Edwardsville",
         "Collinsville", "Mascoutah", "East St. Louis", "Alton", "Granite City", "St. Charles",
+        "Lebanon, IL",
     ],
     "max_past_games": 2,
     "next_up_count": 5,
@@ -106,6 +119,7 @@ USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.3
 
 SWIC_URL = "https://www.swic.edu/students/services/student-life/athletics/mens-basketball/"
 VINCENNES_SCHEDULE_URL = "https://govutrailblazers.com/sports/mbkb/{season}/schedule"
+SIDEARM_SCHEDULE_PATH = "/sports/mens-basketball/schedule/{season}"
 REGION24_STANDINGS_URL = "https://www.njcaaregion24.com/sports/mbkb/{season}/standings"
 NCAA_NET_URL = "https://www.ncaa.com/rankings/basketball-men/d1/ncaa-mens-basketball-net-rankings"
 ESPN_API = "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball"
@@ -120,6 +134,8 @@ REGION24_NAMES = {"swic": "Southwestern Illinois College", "vincennes": "Vincenn
 EASTERN = ZoneInfo("America/New_York")
 CENTRAL = ZoneInfo("America/Chicago")          # MaxPreps (IL/MO schools) and SWIC
 VINCENNES_TZ = ZoneInfo("America/Indiana/Vincennes")
+# Sidearm schools tag a tipoff that is not in their own zone: "12 p.m. ET", "2 p.m. MDT".
+TZ_TAGS = {"E": EASTERN, "C": CENTRAL, "M": ZoneInfo("America/Denver"), "P": ZoneInfo("America/Los_Angeles")}
 
 COLOR_MUTED = "#888888"
 COLOR_TODAY = "#FFA500"
@@ -148,6 +164,7 @@ class School:
     url: str
     name: Optional[str] = None
     short: Optional[str] = None            # "Belleville East", "Illinois"
+    level: Optional[str] = None            # "D2" | "D3" | "NAIA": shown where a rank would be
     record: Optional[str] = None
     ranking: Optional[int] = None          # state rank (HS), AP rank (D1), poll rank (JUCO)
     net_rank: Optional[int] = None
@@ -953,6 +970,144 @@ async def process_vincennes(session: aiohttp.ClientSession) -> School:
     return school
 
 
+# --- SIDEARM (Division II, Division III, NAIA) ----------------------------------------
+
+def sidearm_schedule_url(base: str, slug: Optional[str] = None) -> str:
+    return base.rstrip("/") + SIDEARM_SCHEDULE_PATH.format(season=slug or season_slug())
+
+
+def parse_sidearm_time(text: str) -> tuple[Optional[datetime], ZoneInfo]:
+    """'7:00 PM', '6 p.m.', 'Noon (CT)', '12 p.m. ET' -> (time-only datetime, zone).
+
+    TBA/TBD or an empty string gives (None, CENTRAL). An untagged time is Central: every
+    school this parser serves is in the St. Louis area and posts its own local time.
+    """
+    tag = re.search(r"\b([ECMP])[SD]?T\b", text)
+    tz = TZ_TAGS[tag.group(1)] if tag else CENTRAL
+    if re.search(r"\bnoon\b", text, re.I):
+        return datetime.strptime("12:00 PM", "%I:%M %p"), tz
+    m = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s*m\b", text, re.I)
+    if not m:
+        return None, tz
+    try:
+        return datetime.strptime(f"{m.group(1)}:{m.group(2) or '00'} {m.group(3).upper()}M", "%I:%M %p"), tz
+    except ValueError:
+        return None, tz
+
+
+def parse_sidearm_record(html_or_soup: Any) -> Optional[str]:
+    """Overall record from the "Season Record" strip at the top of a Sidearm schedule."""
+    soup = soup_of(html_or_soup) if isinstance(html_or_soup, str) else html_or_soup
+    block = soup.select_one(".sidearm-schedule-record")
+    m = re.search(r"Overall\s+(\d+-\d+)", block.get_text(" ", strip=True)) if block else None
+    return m.group(1) if m else None
+
+
+def parse_sidearm_schedule(html: str, schedule_url: str, local_cities: list[str]) -> School:
+    """Pure parser for a Sidearm men's basketball schedule page.
+
+    One <li class="sidearm-schedule-game"> per game. The li's classes carry home / away /
+    neutral and, once played, W or L. Some sites (UMSL) repeat the inner blocks for mobile
+    and desktop, so only the first match of each selector inside the li is read.
+    """
+    school = School(key=schedule_url, url=schedule_url)
+    soup = soup_of(html)
+    school.record = parse_sidearm_record(soup)
+    games: list[Game] = []
+    rows = soup.select("li.sidearm-schedule-game")
+    for row in rows:
+        classes = row.get("class") or []
+        opp_el = row.select_one(".sidearm-schedule-game-opponent-name")
+        # A "|" would end the SwiftBar title ("(2) | RV William Jewell College").
+        opponent = re.sub(r"\s*\|\s*", " ", opp_el.get_text(" ", strip=True)) if opp_el else ""
+        # "Lewis University vs. Kentucky Wesleyan College": another pair's game in a
+        # tournament this school hosts.
+        if not opponent or re.search(r"\svs\.?\s", opponent, re.I):
+            continue
+        result_el = row.select_one(".sidearm-schedule-game-result")
+        result_txt = result_el.get_text(" ", strip=True) if result_el else ""
+        if re.search(r"cancel|postpon", result_txt, re.I):
+            continue
+        date_el = row.select_one(".sidearm-schedule-game-opponent-date")
+        spans = [s.get_text(" ", strip=True) for s in date_el.find_all("span", recursive=False)] if date_el else []
+        dm = re.match(r"([A-Za-z]+)\.?\s+(\d{1,2})", spans[0]) if spans else None
+        if not dm or dm.group(1)[:3].title() not in MONTHS:
+            continue
+        month = MONTHS[dm.group(1)[:3].title()]
+        try:
+            game_day = date(year_for_month(month), month, int(dm.group(2)))
+        except ValueError:
+            continue
+        # The time is the second date span on most sites; UMSL only has it in the
+        # opponent link's aria-label ("UHSP on November 21 6 p.m.").
+        link = opp_el.find("a")
+        am = re.search(r" on [A-Za-z]+ \d{1,2}\b(.*)$", link.get("aria-label") or "") if link else None
+        tip, tz = parse_sidearm_time(am.group(1) if am else " ".join(spans[1:]))
+        note = None
+        if re.search(r"[\[(]\s*exh[^\])]*[\])]", opponent, re.I):
+            opponent = re.sub(r"\s*[\[(]\s*exh[^\])]*[\])]", "", opponent, flags=re.I).strip()
+            note = "Exhibition"
+        elif re.search(r"\balumni\b|\bscrimmage\b", opponent, re.I):
+            note = "Exhibition"
+        if "sidearm-schedule-home-game" in classes:
+            ha = "Home"
+        elif "sidearm-schedule-neutral-game" in classes:
+            ha = "Neutral"
+        else:
+            ha = "Away"
+        loc_el = row.select_one(".sidearm-schedule-game-location")
+        location = re.sub(r"\s+", " ", loc_el.get_text(" ", strip=True).replace("|", "/")) if loc_el else ""
+        result = score = None
+        if "sidearm-schedule-game-completed" in classes:
+            result = "W" if "W" in classes else "L" if "L" in classes else None
+            sm = re.search(r"(\d+)\s*-\s*(\d+)", result_txt)
+            if sm:
+                score = f"{sm.group(1)}-{sm.group(2)}"
+        box = row.select_one(".sidearm-schedule-game-links-boxscore a")
+        games.append(Game(
+            date=datetime.combine(game_day, datetime.min.time()),
+            home_away=ha,
+            opponent=opponent,
+            tipoff_time=at_time(game_day, tip, tz),
+            game_url=urljoin(schedule_url, box["href"]) if box and box.get("href") else schedule_url,
+            result=result,
+            score=score,
+            venue=(location.split(" / ")[-1] or None) if ha == "Neutral" else None,
+            note=note,
+            local=ha != "Neutral" or is_local_venue(location, local_cities),
+        ))
+    school.schedule, school.rows_seen, school.rows_parsed = games, len(rows), len(games)
+    return school
+
+
+def small_college_key(entry: dict) -> str:
+    return "sidearm:" + re.sub(r"^https?://(www\.)?", "", str(entry.get("base", ""))).strip("/")
+
+
+async def process_small_college(session: aiohttp.ClientSession, entry: dict, cfg: dict) -> School:
+    key, name, level = small_college_key(entry), entry.get("name"), entry.get("level")
+    url = sidearm_schedule_url(entry["base"])
+    blank = School(key=key, url=url, name=name, short=name, level=level)
+    html, err = await fetch(session, url)
+    if err:
+        blank.fetch_error = f"schedule: {err}"
+        return blank
+    try:
+        school = parse_sidearm_schedule(html, url, cfg["local_venue_cities"])
+    except Exception as e:
+        blank.fetch_error = f"parse error: {type(e).__name__}"
+        return blank
+    school.key, school.name, school.short, school.level = key, name, name, level
+    if school.healthy:
+        school.last_successful_update = datetime.now()
+    return school
+
+
+async def fetch_sidearm_last_season_record(session: aiohttp.ClientSession, entry: dict) -> Optional[str]:
+    html, err = await fetch(session, sidearm_schedule_url(entry["base"], season_slug(season_start_year() - 1)))
+    return None if err else parse_sidearm_record(html)
+
+
 # --- SEASON STATE --------------------------------------------------------------------
 
 def listed_games(s: School) -> list[Game]:
@@ -975,7 +1130,7 @@ def season_state(schools: list[School]) -> tuple[str, Optional[date]]:
 def sort_schools(schools: list[School]) -> list[School]:
     def key(s: School):
         r = s.net_rank or s.ranking
-        return (r is None, r or 0, s.name or "")
+        return (r is None, r or 0, s.level or "", s.name or "")
     return sorted(schools, key=key)
 
 
@@ -997,7 +1152,7 @@ def school_line(s: School, rank_scope: str, state: str = "in") -> str:
         text = f"{warn}{rank_col} {name_col} {rec.ljust(6)} {streak_txt.ljust(4)} {dot}"
     else:            # colleges: NET (D1) or poll (JUCO) rank
         r = s.net_rank or s.ranking
-        rank_col = (f"[# {r}]" if r else "[  -  ]").ljust(8)
+        rank_col = (f"[# {r}]" if r else f"[{s.level}]" if s.level else "[  -  ]").ljust(8)
         name_col = (s.name or "Unknown").ljust(28)
         text = f"{warn}{rank_col}{name_col} {rec.ljust(6)} {streak_txt.ljust(4)} {dot}"
     return text.rstrip()
@@ -1194,6 +1349,7 @@ async def gather_all(cfg: dict) -> tuple[dict[str, list[School]], list[str]]:
     """Fetch every source. Returns ({section: schools}, notes about rankings sources)."""
     notes: list[str] = []
     cc_cfg = cfg.get("community_colleges") or {}
+    small_cfg = [e for e in (cfg.get("small_colleges") or []) if isinstance(e, dict) and e.get("base")]
     async with make_session() as session:
         hs_tasks = [process_high_school(session, hs["url"], cfg) for hs in cfg["high_schools"]]
         d1_tasks = [process_college(session, c["espn_id"], cfg) for c in cfg["colleges"]]
@@ -1202,10 +1358,12 @@ async def gather_all(cfg: dict) -> tuple[dict[str, list[School]], list[str]]:
             cc_tasks.append(process_swic(session))
         if cc_cfg.get("vincennes", True):
             cc_tasks.append(process_vincennes(session))
-        hs, d1, cc, (net, net_note), (njcaa, njcaa_note), (records, rec_note) = await asyncio.gather(
+        small_tasks = [process_small_college(session, e, cfg) for e in small_cfg]
+        hs, d1, cc, small, (net, net_note), (njcaa, njcaa_note), (records, rec_note) = await asyncio.gather(
             asyncio.gather(*hs_tasks, return_exceptions=True),
             asyncio.gather(*d1_tasks, return_exceptions=True),
             asyncio.gather(*cc_tasks, return_exceptions=True),
+            asyncio.gather(*small_tasks, return_exceptions=True),
             fetch_net_rankings(session),
             fetch_njcaa_rankings(session),
             fetch_region24_records(session),
@@ -1220,6 +1378,7 @@ async def gather_all(cfg: dict) -> tuple[dict[str, list[School]], list[str]]:
         hs = ok(hs, [h["url"] for h in cfg["high_schools"]])
         d1 = ok(d1, [f"espn:{c['espn_id']}" for c in cfg["colleges"]])
         cc = ok(cc, [k for k in ("swic", "vincennes") if cc_cfg.get(k, True)])
+        small = ok(small, [small_college_key(e) for e in small_cfg])
 
         for s, c in zip(d1, cfg["colleges"]):
             s.net_rank = net_rank_for(c.get("net_name"), net)
@@ -1230,7 +1389,7 @@ async def gather_all(cfg: dict) -> tuple[dict[str, list[School]], list[str]]:
             if n:
                 notes.append(n)
 
-        state, _ = season_state(hs + d1 + cc)
+        state, _ = season_state(hs + d1 + cc + small)
         if state == "pre":
             last_records, _ = await fetch_region24_records(session, season_slug(season_start_year() - 1))
             for s in cc:
@@ -1238,12 +1397,16 @@ async def gather_all(cfg: dict) -> tuple[dict[str, list[School]], list[str]]:
             finals = await asyncio.gather(*(fetch_espn_last_season_record(session, c["espn_id"]) for c in cfg["colleges"]))
             for s, rec in zip(d1, finals):
                 s.last_season_record = rec
+            finals = await asyncio.gather(*(fetch_sidearm_last_season_record(session, e) for e in small_cfg))
+            for s, rec in zip(small, finals):
+                s.last_season_record = rec
 
     sections = {
         "il": [s for s in hs if "/mo/" not in s.key.lower()],
         "mo": [s for s in hs if "/mo/" in s.key.lower()],
         "cc": cc,
         "d1": d1,
+        "small": small,
     }
     return sections, notes
 
@@ -1276,6 +1439,7 @@ async def run_menu() -> None:
     print_section(sections["mo"], "MO", "MISSOURI HIGH SCHOOLS", featured, state, cfg)
     print_section(sections["cc"], "", "COMMUNITY COLLEGE", featured, state, cfg)
     print_section(sections["d1"], "", "DIVISION I", featured, state, cfg)
+    print_section(sections["small"], "", "DIVISION II · III · NAIA", featured, state, cfg)
     problems = [f"⚠️ {s.name or s.key}: {s.fetch_error}" for s in all_schools if s.fetch_error]
     print_footer(problems + notes)
 
