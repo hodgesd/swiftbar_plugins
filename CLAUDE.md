@@ -81,7 +81,8 @@ Filenames use format: `name.{interval}.py` where interval is:
 - Supports both RSS feeds and HTML scraping
 - Date parsing with recency filtering (7 days by default)
 
-**bball.6h.py**: Local basketball schedules (MaxPreps, ESPN API, SWIC, Vincennes, NJCAA GraphQL)
+**bball.6h.py**: Local basketball schedules (MaxPreps, ESPN API, SWIC, Vincennes, NJCAA GraphQL, Sidearm school sites)
+- D2 / D3 / NAIA schools come from their own Sidearm athletics sites via `parse_sidearm_schedule`; add one with a `small_colleges` entry (`name`, `level`, `base`)
 - Pure `parse_*` functions per source, tested in `tests/test_bball_parsers.py` against trimmed fixtures
 - `./bball.6h.py --check` prints rows seen / games parsed per source and exits 1 on any failure; run it before the season
 - Teams in `~/.config/swiftbar-plugins/bball.json` (defaults in `DEFAULT_CONFIG`); last-good cache in `~/.cache/swiftbar-plugins/`
