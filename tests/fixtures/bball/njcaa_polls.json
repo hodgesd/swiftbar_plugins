@@ -1,0 +1,66 @@
+{
+ "data": {
+  "publishedPolls": [
+   {
+    "publication": {
+     "title": "2025-26 NJCAA DIII Men's Basketball Week 14",
+     "divisionCode": "d3",
+     "genderCode": "mens",
+     "publishedAt": "2026-02-23T00:00:00+00:00"
+    },
+    "results": [
+     {
+      "rank": 1,
+      "ranked": true,
+      "teamName": "Salem Community College",
+      "record": "29-1"
+     }
+    ]
+   },
+   {
+    "publication": {
+     "title": "2025-26 NJCAA DI Men's Basketball Poll | Week 14",
+     "divisionCode": "d1",
+     "genderCode": "mens",
+     "publishedAt": "2026-02-23T00:00:00+00:00"
+    },
+    "results": [
+     {
+      "rank": 1,
+      "ranked": true,
+      "teamName": "Snow College",
+      "record": "27-1"
+     },
+     {
+      "rank": 9,
+      "ranked": true,
+      "teamName": "Vincennes University",
+      "record": "22-4"
+     },
+     {
+      "rank": 26,
+      "ranked": false,
+      "teamName": "Southwestern Illinois College",
+      "record": "20-6"
+     }
+    ]
+   },
+   {
+    "publication": {
+     "title": "2025-26 NJCAA DI Men's Basketball Poll | Week 13",
+     "divisionCode": "d1",
+     "genderCode": "mens",
+     "publishedAt": "2026-02-17T00:00:00+00:00"
+    },
+    "results": [
+     {
+      "rank": 1,
+      "ranked": true,
+      "teamName": "Indian Hills Community College",
+      "record": "25-1"
+     }
+    ]
+   }
+  ]
+ }
+}

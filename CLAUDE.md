@@ -81,6 +81,12 @@ Filenames use format: `name.{interval}.py` where interval is:
 - Supports both RSS feeds and HTML scraping
 - Date parsing with recency filtering (7 days by default)
 
+**bball.6h.py**: Local basketball schedules (MaxPreps, ESPN API, SWIC, Vincennes, NJCAA GraphQL)
+- Pure `parse_*` functions per source, tested in `tests/test_bball_parsers.py` against trimmed fixtures
+- `./bball.6h.py --check` prints rows seen / games parsed per source and exits 1 on any failure; run it before the season
+- Teams in `~/.config/swiftbar-plugins/bball.json` (defaults in `DEFAULT_CONFIG`); last-good cache in `~/.cache/swiftbar-plugins/`
+- `BBALL_FAKE_TODAY=YYYY-MM-DD` renders the in-season / off-season layouts on any day
+
 **cprt.1d.py**: Authenticated RSS feed parser
 - Demonstrates handling private/authenticated feeds
 - Custom HTML stripping for content display
@@ -103,6 +109,11 @@ just lock
 Note: The project is transitioning from `requirements.in/txt` to `pyproject.toml` + `uv.lock`. Some older workflows may reference requirements files, but new development should use `pyproject.toml`.
 
 ## Testing Plugins
+
+**Run the parser tests** (currently bball only):
+```bash
+uv run --with pytest --with aiohttp --with beautifulsoup4 --with truststore pytest tests/
+```
 
 **Test a plugin manually**:
 ```bash
