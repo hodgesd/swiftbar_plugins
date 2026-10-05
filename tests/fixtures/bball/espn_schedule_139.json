@@ -1,0 +1,180 @@
+{
+ "team": {
+  "id": "139"
+ },
+ "events": [
+  {
+   "id": "401911248",
+   "date": "2026-11-02T05:00Z",
+   "timeValid": false,
+   "links": [
+    {
+     "rel": [
+      "summary",
+      "desktop",
+      "event"
+     ],
+     "href": "https://www.espn.com/mens-college-basketball/game/_/gameId/401911248/lehigh-saint-louis"
+    }
+   ],
+   "competitions": [
+    {
+     "timeValid": false,
+     "neutralSite": false,
+     "venue": {
+      "fullName": "Chaifetz Arena",
+      "address": {
+       "city": "St. Louis",
+       "state": "MO"
+      }
+     },
+     "status": {
+      "type": {
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "winner": null,
+       "score": {
+        "displayValue": null
+       },
+       "team": {
+        "id": "139",
+        "shortDisplayName": "Saint Louis"
+       }
+      },
+      {
+       "homeAway": "away",
+       "winner": null,
+       "score": {
+        "displayValue": null
+       },
+       "team": {
+        "id": "2329",
+        "shortDisplayName": "Lehigh"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401911253",
+   "date": "2026-11-25T02:30Z",
+   "timeValid": true,
+   "links": [
+    {
+     "rel": [
+      "summary",
+      "desktop",
+      "event"
+     ],
+     "href": "https://www.espn.com/mens-college-basketball/game/_/gameId/401911253/grand-canyon-saint-louis"
+    }
+   ],
+   "competitions": [
+    {
+     "timeValid": true,
+     "neutralSite": true,
+     "venue": {
+      "fullName": "Acrisure Arena",
+      "address": {
+       "city": "Palm Springs",
+       "state": "CA"
+      }
+     },
+     "status": {
+      "type": {
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "winner": null,
+       "score": {
+        "displayValue": null
+       },
+       "team": {
+        "id": "139",
+        "shortDisplayName": "Saint Louis"
+       }
+      },
+      {
+       "homeAway": "away",
+       "winner": null,
+       "score": {
+        "displayValue": null
+       },
+       "team": {
+        "id": "2253",
+        "shortDisplayName": "Grand Canyon"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401817182",
+   "date": "2025-11-04T01:00Z",
+   "timeValid": true,
+   "links": [
+    {
+     "rel": [
+      "summary",
+      "desktop",
+      "event"
+     ],
+     "href": "https://www.espn.com/mens-college-basketball/game/_/gameId/401817182/se-missouri-saint-louis"
+    }
+   ],
+   "competitions": [
+    {
+     "timeValid": true,
+     "neutralSite": false,
+     "venue": {
+      "fullName": "Chaifetz Arena",
+      "address": {
+       "city": "St. Louis",
+       "state": "MO"
+      }
+     },
+     "status": {
+      "type": {
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 92.0,
+        "displayValue": "92"
+       },
+       "team": {
+        "id": "139",
+        "shortDisplayName": "Saint Louis"
+       }
+      },
+      {
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 67.0,
+        "displayValue": "67"
+       },
+       "team": {
+        "id": "2546",
+        "shortDisplayName": "SE Missouri"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

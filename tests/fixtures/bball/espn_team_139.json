@@ -1,0 +1,30 @@
+{
+ "team": {
+  "id": "139",
+  "displayName": "Saint Louis Billikens",
+  "shortDisplayName": "Saint Louis",
+  "rank": 24,
+  "record": {
+   "items": [
+    {
+     "type": "total",
+     "summary": "12-3"
+    },
+    {
+     "type": "home",
+     "summary": "8-0"
+    }
+   ]
+  },
+  "links": [
+   {
+    "rel": [
+     "clubhouse",
+     "desktop",
+     "team"
+    ],
+    "href": "https://www.espn.com/mens-college-basketball/team/_/id/139/saint-louis-billikens"
+   }
+  ]
+ }
+}
