@@ -9,7 +9,7 @@
 # ///
 
 # <swiftbar.title>Local Basketball</swiftbar.title>
-# <swiftbar.version>v4.1</swiftbar.version>
+# <swiftbar.version>v4.2</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Home games, records and rankings for local high school, JUCO, D1, D2, D3 and NAIA basketball. Teams configurable via ~/.config/swiftbar-plugins/bball.json</swiftbar.desc>
@@ -1188,16 +1188,20 @@ def game_label(g: Game) -> str:
     return label
 
 
-def fantastical_line(g: Game, school_name: str, depth: int) -> Optional[str]:
-    if not g.tipoff_time:
-        return None
+def calendar_line(g: Game, school_name: str, depth: int) -> str:
+    """'Add to Calendar' child item: hands Fantastical a natural-language sentence.
+    A game with no tipoff yet becomes an all-day event tagged '(time TBD)'."""
     where = g.venue if g.home_away == "Neutral" and g.venue else school_name
-    title = f'"{g.opponent} at {school_name}"' if g.home_away == "Home" else f'"{school_name} vs {g.opponent}"'
-    appt = f"{g.date:%Y/%m/%d} at {g.tipoff_time:%H%M} {title} at {where}"
-    return f"{'-' * depth}Add to Fantastical | href=x-fantastical3://parse?add=1&sentence={quote(appt)} terminal=false"
+    title = f"{g.opponent} at {school_name}" if g.home_away == "Home" else f"{school_name} vs {g.opponent}"
+    if g.tipoff_time:
+        appt = f'{g.date:%Y/%m/%d} at {g.tipoff_time:%H%M} "{title}" at {where}'
+    else:
+        appt = f'{g.date:%Y/%m/%d} "{title} (time TBD)" at {where}'
+    return (f"{'-' * depth}Add to Calendar | href=x-fantastical3://parse?add=1&sentence={quote(appt)} "
+            f"sfimage=calendar.badge.plus terminal=false")
 
 
-def print_game_line(g: Game, s: School, depth: int, fantastical: bool) -> None:
+def print_game_line(g: Game, s: School, depth: int) -> None:
     t = today()
     prefix = "-" * depth
     if g.date.date() < t:
@@ -1212,14 +1216,10 @@ def print_game_line(g: Game, s: School, depth: int, fantastical: bool) -> None:
     md = f"**{msg}**" if is_today else msg
     color = f" color={COLOR_TODAY}" if is_today else ""
     print(f'{prefix}{md} | href={g.game_url or s.url} md=true{color}')
-    if fantastical:
-        line = fantastical_line(g, s.name or "", depth + 2)
-        if line:
-            print(line)
+    print(calendar_line(g, s.name or "", depth + 2))
 
 
-def print_section(schools: list[School], rank_scope: str, header: str, featured: set[tuple],
-                  state: str, cfg: dict) -> None:
+def print_section(schools: list[School], rank_scope: str, header: str, state: str, cfg: dict) -> None:
     if not schools:
         return
     print("---")
@@ -1228,25 +1228,17 @@ def print_section(schools: list[School], rank_scope: str, header: str, featured:
     for s in sort_schools(schools):
         line = school_line(s, rank_scope, state)
         print(f'{line} | href={s.url} font=Menlo-Bold tooltip="{school_tooltip(s, rank_scope)}"')
-        games = listed_games(s)
+        games = sorted(listed_games(s), key=lambda g: g.date)
         upcoming = [g for g in games if g.date.date() >= t]
-        past = sorted((g for g in games if g.date.date() < t), key=lambda g: g.date, reverse=True)
-        if state == "in":
-            if upcoming:
-                print(f"--{len(upcoming)} upcoming home game{'s' if len(upcoming) != 1 else ''} | size=11 color=#666666")
-            for g in past[:cfg["max_past_games"]]:
-                print_game_line(g, s, 2, False)
-            for g in upcoming:
-                print_game_line(g, s, 2, (s.key, g.date, g.opponent) in featured)
-        else:
-            if upcoming:
-                print(f"--Schedule · {len(upcoming)} home game{'s' if len(upcoming) != 1 else ''}, first {upcoming[0].date:%b %d} | size=11 color=#666666")
-                for g in upcoming:
-                    print_game_line(g, s, 4, False)
-            elif past:
-                print(f"--Last home games | size=11 color=#666666")
-                for g in past[:cfg["max_past_games"]]:
-                    print_game_line(g, s, 4, False)
+        past = [g for g in games if g.date.date() < t]
+        recent = past[-cfg["max_past_games"]:] if (state == "in" or not upcoming) else []
+        if upcoming:
+            word = "upcoming " if state == "in" else ""
+            print(f"--{len(upcoming)} {word}home game{'s' if len(upcoming) != 1 else ''} | size=11 color=#666666")
+        elif recent:
+            print(f"--Last home games | size=11 color=#666666")
+        for g in recent + upcoming:
+            print_game_line(g, s, 2)
 
 
 def short_name(s: School) -> str:
@@ -1272,7 +1264,7 @@ def upcoming_listed(schools: list[School]) -> list[tuple[School, Game]]:
     return out
 
 
-def print_next_up(schools: list[School], featured: set[tuple], count: int) -> None:
+def print_next_up(schools: list[School], count: int) -> None:
     pairs = upcoming_listed(schools)[:count]
     if not pairs:
         return
@@ -1289,10 +1281,7 @@ def print_next_up(schools: list[School], featured: set[tuple], count: int) -> No
         is_today = g.date.date() == today()
         color = f" color={COLOR_TODAY}" if is_today else ""
         print(f"{format_relative_date(g.date).ljust(8)} {when}  {who} | href={g.game_url or s.url} font=Menlo{color}")
-        if (s.key, g.date, g.opponent) in featured:
-            line = fantastical_line(g, s.name or "", 2)
-            if line:
-                print(line)
+        print(calendar_line(g, s.name or "", 2))
 
 
 def print_openers(schools: list[School], first_game: Optional[date]) -> None:
@@ -1411,12 +1400,6 @@ async def gather_all(cfg: dict) -> tuple[dict[str, list[School]], list[str]]:
     return sections, notes
 
 
-def featured_games(schools: list[School], count: int) -> set[tuple]:
-    """Keys (school key, date, opponent) of the next `count` games with a known tipoff."""
-    pairs = [(s, g) for s, g in upcoming_listed(schools) if g.tipoff_time]
-    return {(s.key, g.date, g.opponent) for s, g in pairs[:count]}
-
-
 async def run_menu() -> None:
     cfg = load_config()
     cached = load_cache()
@@ -1428,18 +1411,17 @@ async def run_menu() -> None:
     all_schools = [s for group in sections.values() for s in group]
 
     state, first_game = season_state(all_schools)
-    featured = featured_games(all_schools, cfg["next_up_count"]) if state == "in" else set()
 
     print_title(all_schools, state, first_game)
     if state == "in":
-        print_next_up(all_schools, featured, cfg["next_up_count"])
+        print_next_up(all_schools, cfg["next_up_count"])
     else:
         print_openers(all_schools, first_game)
-    print_section(sections["il"], "IL", "ILLINOIS HIGH SCHOOLS", featured, state, cfg)
-    print_section(sections["mo"], "MO", "MISSOURI HIGH SCHOOLS", featured, state, cfg)
-    print_section(sections["cc"], "", "COMMUNITY COLLEGE", featured, state, cfg)
-    print_section(sections["d1"], "", "DIVISION I", featured, state, cfg)
-    print_section(sections["small"], "", "DIVISION II · III · NAIA", featured, state, cfg)
+    print_section(sections["il"], "IL", "ILLINOIS HIGH SCHOOLS", state, cfg)
+    print_section(sections["mo"], "MO", "MISSOURI HIGH SCHOOLS", state, cfg)
+    print_section(sections["cc"], "", "COMMUNITY COLLEGE", state, cfg)
+    print_section(sections["d1"], "", "DIVISION I", state, cfg)
+    print_section(sections["small"], "", "DIVISION II · III · NAIA", state, cfg)
     problems = [f"⚠️ {s.name or s.key}: {s.fetch_error}" for s in all_schools if s.fetch_error]
     print_footer(problems + notes)
 
