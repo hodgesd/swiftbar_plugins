@@ -9,7 +9,7 @@
 # ///
 
 # <swiftbar.title>Local Basketball</swiftbar.title>
-# <swiftbar.version>v4.2</swiftbar.version>
+# <swiftbar.version>v4.3</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Home games, records and rankings for local high school, JUCO, D1, D2, D3 and NAIA basketball. Teams configurable via ~/.config/swiftbar-plugins/bball.json</swiftbar.desc>
@@ -1188,8 +1188,10 @@ def game_label(g: Game) -> str:
     return label
 
 
-def calendar_line(g: Game, school_name: str, depth: int) -> str:
-    """'Add to Calendar' child item: hands Fantastical a natural-language sentence.
+def calendar_line(g: Game, school_name: str, depth: int, label: str, style: str = "") -> str:
+    """The ⌥ alternate of a game row: hands Fantastical a natural-language sentence.
+    SwiftBar swaps it in for the line printed just before it while Option is held, so it
+    must directly follow its game row at the same depth. `label` is that row's text.
     A game with no tipoff yet becomes an all-day event tagged '(time TBD)'."""
     where = g.venue if g.home_away == "Neutral" and g.venue else school_name
     title = f"{g.opponent} at {school_name}" if g.home_away == "Home" else f"{school_name} vs {g.opponent}"
@@ -1197,8 +1199,8 @@ def calendar_line(g: Game, school_name: str, depth: int) -> str:
         appt = f'{g.date:%Y/%m/%d} at {g.tipoff_time:%H%M} "{title}" at {where}'
     else:
         appt = f'{g.date:%Y/%m/%d} "{title} (time TBD)" at {where}'
-    return (f"{'-' * depth}Add to Calendar | href=x-fantastical3://parse?add=1&sentence={quote(appt)} "
-            f"sfimage=calendar.badge.plus terminal=false")
+    return (f"{'-' * depth}Add to Calendar · {label} | href=x-fantastical3://parse?add=1&sentence={quote(appt)} "
+            f"sfimage=calendar.badge.plus alternate=true terminal=false{style}")
 
 
 def print_game_line(g: Game, s: School, depth: int) -> None:
@@ -1216,7 +1218,7 @@ def print_game_line(g: Game, s: School, depth: int) -> None:
     md = f"**{msg}**" if is_today else msg
     color = f" color={COLOR_TODAY}" if is_today else ""
     print(f'{prefix}{md} | href={g.game_url or s.url} md=true{color}')
-    print(calendar_line(g, s.name or "", depth + 2))
+    print(calendar_line(g, s.name or "", depth, md, f" md=true{color}"))
 
 
 def print_section(schools: list[School], rank_scope: str, header: str, state: str, cfg: dict) -> None:
@@ -1281,7 +1283,7 @@ def print_next_up(schools: list[School], count: int) -> None:
         is_today = g.date.date() == today()
         color = f" color={COLOR_TODAY}" if is_today else ""
         print(f"{format_relative_date(g.date).ljust(8)} {when}  {who} | href={g.game_url or s.url} font=Menlo{color}")
-        print(calendar_line(g, s.name or "", 2))
+        print(calendar_line(g, s.name or "", 0, f"{format_relative_date(g.date)} {when.strip()}  {who}", f" font=Menlo{color}"))
 
 
 def print_openers(schools: list[School], first_game: Optional[date]) -> None:
@@ -1319,10 +1321,12 @@ def print_title(schools: list[School], state: str, first_game: Optional[date]) -
         print(f"| sfimage=basketball sfcolor={COLOR_OFFSEASON}")
 
 
-def print_footer(notes: list[str]) -> None:
+def print_footer(notes: list[str], calendar_hint: bool = False) -> None:
     print("---")
     for n in notes:
         print(f"{n} | size=11 color={COLOR_MUTED}")
+    if calendar_hint:
+        print(f"Hold ⌥ on a game to add it to your calendar | size=11 color={COLOR_MUTED}")
     print(f"Refresh | refresh=true")
 
 
@@ -1423,7 +1427,8 @@ async def run_menu() -> None:
     print_section(sections["d1"], "", "DIVISION I", state, cfg)
     print_section(sections["small"], "", "DIVISION II · III · NAIA", state, cfg)
     problems = [f"⚠️ {s.name or s.key}: {s.fetch_error}" for s in all_schools if s.fetch_error]
-    print_footer(problems + notes)
+    has_upcoming = any(g.date.date() >= today() for s in all_schools for g in listed_games(s))
+    print_footer(problems + notes, calendar_hint=has_upcoming)
 
 
 async def run_check() -> int:
