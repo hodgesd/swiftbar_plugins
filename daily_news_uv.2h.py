@@ -10,10 +10,10 @@
 # ///
 
 # <swiftbar.title>Combined Tech News</swiftbar.title>
-# <swiftbar.version>v2.3</swiftbar.version>
+# <swiftbar.version>v2.4</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
-# <swiftbar.desc>Combines STLToday, STL PR, BND, Techmeme, Lobste.rs, Hacker News, Simon Willison, and the Local & Agentic AI, Home Lab, NBA, EV/Solar and Fitness 50+ topics in one dropdown</swiftbar.desc>
+# <swiftbar.desc>Combines STLToday, STL PR, BND, Techmeme, Lobste.rs, Hacker News, Simon Willison, and the Local & Agentic AI, Homelab/NixOS, NBA, EV/Solar and Fitness 50+ topics in one dropdown</swiftbar.desc>
 # <swiftbar.dependencies>uv, beautifulsoup4, aiohttp, requests</swiftbar.dependencies>
 
 import asyncio
@@ -1522,31 +1522,45 @@ TOPICS = (
         home_url="https://www.latent.space",
         color="#7C4DFF",
         feeds=(
+            ("https://www.seangoedecke.com/rss.xml", "Goedecke"),
+            ("https://lmstudio.ai/rss.xml", "LM Studio"),
+            ("https://ghuntley.com/rss/", "Huntley"),
+            ("https://ollama.com/blog/rss.xml", "Ollama"),
             ("https://www.latent.space/feed", "Latent Space"),
-            ("https://openai.com/news/rss.xml", "OpenAI"),
-            ("https://deepmind.google/blog/rss.xml", "DeepMind"),
-            ("https://arstechnica.com/ai/feed/", "Ars"),
+            ("https://ampcode.com/news.rss", "Amp"),
+            ("https://lucumr.pocoo.org/feed.atom", "Ronacher"),
             ("https://huggingface.co/blog/feed.xml", "HF"),
-            ("https://lobste.rs/t/ai.rss", "lobsters"),
-            ("https://github.com/ml-explore/mlx/releases.atom", "mlx"),
-            ("https://github.com/ml-explore/mlx-lm/releases.atom", "mlx-lm"),
         ),
-        hn_queries=("mlx",),
-        max_items=12,
+        max_items=20,
         max_age_days=30,
         per_feed_max=2,
+        # Latent Space's two recurring non-stories
+        exclude=r"Subscriber Exclusive|not much happened",
     ),
     Topic(
-        name="Home Lab",
-        home_url="https://www.servethehome.com",
+        name="Homelab/NixOS",
+        home_url="https://www.jeffgeerling.com",
         color="#607D8B",
         feeds=(
-            ("https://www.servethehome.com/feed/", "STH"),
-            ("https://selfh.st/rss/", "selfh.st"),
             ("https://www.jeffgeerling.com/blog.xml", "Geerling"),
+            ("https://technotim.live/feed.xml", "Techno Tim"),
+            ("https://www.home-assistant.io/atom.xml", "Home Assistant"),
+            ("https://christianlempa.de/rss.xml", "Lempa"),
+            ("https://www.nijho.lt/index.xml", "Nijholt"),
+            ("https://blog.ktz.me/rss/", "KTZ"),
+            ("https://www.apalrd.net/index.xml", "apalrd"),
+            ("https://blog.tiserbox.com/atom.xml", "ibizaman"),
+            ("https://frenck.dev/rss/", "Frenck"),
+            ("https://vincent.bernat.ch/en/blog/atom.xml", "Bernat"),
+            ("https://www.derekseaman.com/feed", "Seaman"),
+            ("https://fzakaria.com/feed.xml", "Zakaria"),
+            ("https://blog.thalheim.io/index.xml", "Mic92"),
+            ("https://wimpysworld.com/rss.xml", "Wimpress"),
+            ("https://selfh.st/rss/", "selfh.st"),
         ),
-        hn_queries=("homelab", "self-hosted"),
+        max_items=20,
         max_age_days=30,
+        per_feed_max=2,
     ),
     Topic(
         name="NBA",
