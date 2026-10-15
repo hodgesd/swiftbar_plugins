@@ -674,7 +674,8 @@ def render(cfg, lat, lon, url, url_note, results, today):
     for h in active:
         annotate(h, state, today)
 
-    active.sort(key=lambda h: (not h["is_new"], -(h["price"] or 0)))
+    # New listings first, then price cuts, so neither falls past MAX_ROWS.
+    active.sort(key=lambda h: (not h["is_new"], (h.get("change") or 0) >= 0, -(h["price"] or 0)))
     pending.sort(key=lambda h: -(h["price"] or 0))
     sold.sort(key=lambda h: h["sold_date"], reverse=True)
     new_count = sum(h["is_new"] for h in active)
@@ -683,13 +684,6 @@ def render(cfg, lat, lon, url, url_note, results, today):
     # ── Menu bar title ──
     estimate = (home or {}).get("estimate")
     title = f"⌂ {fmt_short(estimate)}" if estimate else f"⌂ {len(active)} for sale"
-    extras = []
-    if new_count:
-        extras.append(f"{new_count} new")
-    if cuts:
-        extras.append(f"{cuts}▼")
-    if extras:
-        title += " · " + " ".join(extras)
     if any(r[0] is None for r in (results["active"], results["sold"])):
         title += " ⚠"
     print(f"{title} | {TITLE_FONT}")
@@ -731,6 +725,8 @@ def render(cfg, lat, lon, url, url_note, results, today):
         counts.append(f"{len(pending)} pending")
     if new_count:
         counts.append(f"{new_count} new")
+    if cuts:
+        counts.append(f"{cuts} price {'cut' if cuts == 1 else 'cuts'}")
     print(f"🏷️  FOR SALE  ({' · '.join(counts)}) | {HEADER_FONT} {WHITE}")
     if stale_line(active_info):
         print(stale_line(active_info))

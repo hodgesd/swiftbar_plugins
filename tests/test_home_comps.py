@@ -247,7 +247,8 @@ def test_render_badges_and_title(capsys):
            "radius": 1.5, "sold_days": 90}
     hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
     out = capsys.readouterr().out.splitlines()
-    assert out[0].startswith("⌂ $462K · 1 new 1▼")
+    assert out[0] == "⌂ $462K | font=SF Pro Display size=14"
+    assert any("FOR SALE" in line and "1 new · 1 price cut" in line for line in out)
     fresh = next(line for line in out if "2 Fresh Ct" in line)
     cut = next(line for line in out if "1 Cut Ct" in line)
     assert "NEW" in fresh and "color=#34C759" in fresh
