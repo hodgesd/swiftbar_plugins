@@ -88,6 +88,13 @@ Filenames use format: `name.{interval}.py` where interval is:
 - Teams in `~/.config/swiftbar-plugins/bball.json` (defaults in `DEFAULT_CONFIG`); last-good cache in `~/.cache/swiftbar-plugins/`
 - `BBALL_FAKE_TODAY=YYYY-MM-DD` renders the in-season / off-season layouts on any day
 
+**home_comps_uv.8hr.py**: Neighborhood comps from Redfin (stdlib only)
+- Redfin map-search JSON (`stingray/api/gis`) with a bounding `poly` around the home; `mpt=99` is required or the polygon is ignored. Status 9 = active + coming soon, 130 = pending, 9 + `sold_within_days` = sold
+- The CSV endpoint returns no rows for the St. Louis MLS, and autocomplete / initialInfo return 403; the Redfin Estimate comes from the home page's embedded `avmInfo`
+- Home lat/lon come from the US Census geocoder and the home URL from a tiny-box sold-history search, both cached in `location.json`
+- `listings_state.json` tracks first-seen dates and prices for the NEW and price-change badges; failed fetches fall back to the last good cache
+- `./home_comps_uv.8hr.py --check` prints per-source counts and exits 1 on failure
+
 **cprt.1d.py**: Authenticated RSS feed parser
 - Demonstrates handling private/authenticated feeds
 - Custom HTML stripping for content display
@@ -111,7 +118,7 @@ Note: The project is transitioning from `requirements.in/txt` to `pyproject.toml
 
 ## Testing Plugins
 
-**Run the parser tests** (currently bball only):
+**Run the parser tests** (bball and home_comps):
 ```bash
 uv run --with pytest --with aiohttp --with beautifulsoup4 --with truststore pytest tests/
 ```

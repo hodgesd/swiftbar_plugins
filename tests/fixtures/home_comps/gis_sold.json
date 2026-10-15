@@ -1,0 +1,413 @@
+{}&&{
+ "version": 663,
+ "errorMessage": "Success",
+ "resultCode": 0,
+ "payload": {
+  "homes": [
+   {
+    "mlsId": {
+     "label": "MLS#",
+     "value": "26041807"
+    },
+    "showMlsId": false,
+    "mlsStatus": "Closed",
+    "showDatasourceLogo": false,
+    "price": {
+     "value": 425000,
+     "level": 1
+    },
+    "hideSalePrice": true,
+    "hoa": {
+     "value": 47,
+     "level": 1
+    },
+    "isHoaFrequencyKnown": true,
+    "sqFt": {
+     "value": 2676,
+     "level": 1
+    },
+    "pricePerSqFt": {
+     "value": 159,
+     "level": 1
+    },
+    "lotSize": {
+     "value": 12196,
+     "level": 1
+    },
+    "beds": 4,
+    "baths": 2.5,
+    "fullBaths": 2,
+    "partialBaths": 1,
+    "location": {
+     "value": "The Orchards 8th Add",
+     "level": 1
+    },
+    "stories": 2.0,
+    "latLong": {
+     "value": {
+      "latitude": 38.4875693,
+      "longitude": -89.9124587
+     },
+     "level": 1
+    },
+    "streetLine": {
+     "value": "2845 Fairway Dr",
+     "level": 1
+    },
+    "unitNumber": {
+     "level": 1
+    },
+    "city": "Belleville",
+    "state": "IL",
+    "zip": "62220",
+    "postalCode": {
+     "value": "62220",
+     "level": 1
+    },
+    "countryCode": "US",
+    "showAddressOnMap": true,
+    "soldDate": 1786518000000,
+    "searchStatus": 4,
+    "propertyType": 6,
+    "uiPropertyType": 1,
+    "listingType": 1,
+    "propertyId": 105471267,
+    "listingId": 218312692,
+    "dataSourceId": 156,
+    "isEarlyAccess": false,
+    "marketId": 35,
+    "yearBuilt": {
+     "value": 2000,
+     "level": 1
+    },
+    "dom": {
+     "level": 1
+    },
+    "timeOnRedfin": {
+     "level": 1
+    },
+    "timeZone": "US/Central",
+    "primaryPhotoDisplayLevel": 1,
+    "numPictures": 59,
+    "photoFormat": "webp",
+    "url": "/IL/Belleville/2845-Fairway-Dr-62220/home/105471267",
+    "hasInsight": false,
+    "isHot": false,
+    "hasVirtualTour": false,
+    "hasVideoTour": false,
+    "has3DTour": false,
+    "hasInteractiveFloorplan": true,
+    "isRedfin": false,
+    "remarksAccessLevel": 1,
+    "isShortlisted": false,
+    "isViewedListing": false,
+    "skGarageSpaces": 3,
+    "skParkingSpaces": 3,
+    "skPoolType": 1
+   },
+   {
+    "mlsId": {
+     "label": "MLS#",
+     "value": "26035309"
+    },
+    "showMlsId": false,
+    "mlsStatus": "Closed",
+    "showDatasourceLogo": false,
+    "price": {
+     "value": 335000,
+     "level": 1
+    },
+    "hideSalePrice": true,
+    "hoa": {
+     "value": 48,
+     "level": 1
+    },
+    "isHoaFrequencyKnown": true,
+    "sqFt": {
+     "value": 2477,
+     "level": 1
+    },
+    "pricePerSqFt": {
+     "value": 135,
+     "level": 1
+    },
+    "lotSize": {
+     "value": 7405,
+     "level": 1
+    },
+    "beds": 4,
+    "baths": 2.5,
+    "fullBaths": 2,
+    "partialBaths": 1,
+    "location": {
+     "value": "The Estates at Plum Hill",
+     "level": 1
+    },
+    "stories": 2.0,
+    "latLong": {
+     "value": {
+      "latitude": 38.5024774,
+      "longitude": -89.9136794
+     },
+     "level": 1
+    },
+    "streetLine": {
+     "value": "2824 Smokehouse Way",
+     "level": 1
+    },
+    "unitNumber": {
+     "level": 1
+    },
+    "city": "Belleville",
+    "state": "IL",
+    "zip": "62221",
+    "postalCode": {
+     "value": "62221",
+     "level": 1
+    },
+    "countryCode": "US",
+    "showAddressOnMap": true,
+    "soldDate": 1785481200000,
+    "searchStatus": 4,
+    "propertyType": 6,
+    "uiPropertyType": 1,
+    "listingType": 1,
+    "propertyId": 106077510,
+    "listingId": 216609041,
+    "dataSourceId": 156,
+    "isEarlyAccess": false,
+    "marketId": 35,
+    "yearBuilt": {
+     "value": 2004,
+     "level": 1
+    },
+    "dom": {
+     "level": 1
+    },
+    "timeOnRedfin": {
+     "level": 1
+    },
+    "timeZone": "US/Central",
+    "primaryPhotoDisplayLevel": 1,
+    "numPictures": 42,
+    "photoFormat": "webp",
+    "url": "/IL/Belleville/2824-Smokehouse-Way-62221/home/106077510",
+    "hasInsight": false,
+    "isHot": false,
+    "hasVirtualTour": false,
+    "hasVideoTour": false,
+    "has3DTour": false,
+    "hasInteractiveFloorplan": false,
+    "isRedfin": false,
+    "remarksAccessLevel": 1,
+    "isShortlisted": false,
+    "isViewedListing": false,
+    "skGarageSpaces": 2,
+    "skParkingSpaces": 2,
+    "skPoolType": 3
+   },
+   {
+    "mlsId": {
+     "label": "MLS#",
+     "value": "26046142"
+    },
+    "showMlsId": false,
+    "mlsStatus": "Closed",
+    "showDatasourceLogo": false,
+    "price": {
+     "value": 280000,
+     "level": 1
+    },
+    "hideSalePrice": true,
+    "hoa": {
+     "value": 33,
+     "level": 1
+    },
+    "isHoaFrequencyKnown": true,
+    "sqFt": {
+     "value": 2465,
+     "level": 1
+    },
+    "pricePerSqFt": {
+     "value": 114,
+     "level": 1
+    },
+    "lotSize": {
+     "value": 6534,
+     "level": 1
+    },
+    "beds": 4,
+    "baths": 2.5,
+    "fullBaths": 2,
+    "partialBaths": 1,
+    "location": {
+     "value": "Brookhill Estates",
+     "level": 1
+    },
+    "stories": 2.0,
+    "latLong": {
+     "value": {
+      "latitude": 38.5084514,
+      "longitude": -89.9249729
+     },
+     "level": 1
+    },
+    "streetLine": {
+     "value": "2660 Brookrun Dr",
+     "level": 1
+    },
+    "unitNumber": {
+     "level": 1
+    },
+    "city": "Belleville",
+    "state": "IL",
+    "zip": "62221",
+    "postalCode": {
+     "value": "62221",
+     "level": 1
+    },
+    "countryCode": "US",
+    "showAddressOnMap": true,
+    "soldDate": 1785654000000,
+    "searchStatus": 4,
+    "propertyType": 6,
+    "uiPropertyType": 1,
+    "listingType": 1,
+    "propertyId": 134947985,
+    "listingId": 221029452,
+    "dataSourceId": 156,
+    "isEarlyAccess": false,
+    "marketId": 35,
+    "yearBuilt": {
+     "value": 2002,
+     "level": 1
+    },
+    "dom": {
+     "level": 1
+    },
+    "timeOnRedfin": {
+     "level": 1
+    },
+    "timeZone": "US/Central",
+    "primaryPhotoDisplayLevel": 1,
+    "numPictures": 57,
+    "photoFormat": "webp",
+    "url": "/IL/Belleville/2660-Brookrun-Dr-62221/home/134947985",
+    "hasInsight": false,
+    "isHot": false,
+    "hasVirtualTour": false,
+    "hasVideoTour": false,
+    "has3DTour": false,
+    "hasInteractiveFloorplan": false,
+    "isRedfin": false,
+    "remarksAccessLevel": 1,
+    "isShortlisted": false,
+    "isViewedListing": false,
+    "skGarageSpaces": 2,
+    "skParkingSpaces": 2,
+    "skPoolType": 3
+   },
+   {
+    "mlsId": {
+     "label": "MLS#",
+     "value": "26050947"
+    },
+    "showMlsId": false,
+    "mlsStatus": "Closed",
+    "showDatasourceLogo": false,
+    "price": {
+     "value": 235000,
+     "level": 1
+    },
+    "hideSalePrice": true,
+    "hoa": {
+     "value": 33,
+     "level": 1
+    },
+    "isHoaFrequencyKnown": true,
+    "sqFt": {
+     "value": 864,
+     "level": 1
+    },
+    "pricePerSqFt": {
+     "value": 272,
+     "level": 1
+    },
+    "lotSize": {
+     "value": 8276,
+     "level": 1
+    },
+    "beds": 3,
+    "baths": 2.5,
+    "fullBaths": 2,
+    "partialBaths": 1,
+    "location": {
+     "value": "Brookhill Estates",
+     "level": 1
+    },
+    "stories": 2.0,
+    "latLong": {
+     "value": {
+      "latitude": 38.5083026,
+      "longitude": -89.9247315
+     },
+     "level": 1
+    },
+    "streetLine": {
+     "value": "2656 Brookrun Dr",
+     "level": 1
+    },
+    "unitNumber": {
+     "level": 1
+    },
+    "city": "Belleville",
+    "state": "IL",
+    "zip": "62221",
+    "postalCode": {
+     "value": "62221",
+     "level": 1
+    },
+    "countryCode": "US",
+    "showAddressOnMap": true,
+    "soldDate": 1788418800000,
+    "searchStatus": 4,
+    "propertyType": 6,
+    "uiPropertyType": 1,
+    "listingType": 1,
+    "propertyId": 135104732,
+    "listingId": 222125640,
+    "dataSourceId": 156,
+    "isEarlyAccess": false,
+    "marketId": 35,
+    "yearBuilt": {
+     "value": 2003,
+     "level": 1
+    },
+    "dom": {
+     "level": 1
+    },
+    "timeOnRedfin": {
+     "level": 1
+    },
+    "timeZone": "US/Central",
+    "primaryPhotoDisplayLevel": 1,
+    "numPictures": 35,
+    "photoFormat": "webp",
+    "url": "/IL/Belleville/2656-Brookrun-Dr-62221/home/135104732",
+    "hasInsight": false,
+    "isHot": false,
+    "hasVirtualTour": false,
+    "hasVideoTour": false,
+    "has3DTour": false,
+    "hasInteractiveFloorplan": false,
+    "isRedfin": false,
+    "remarksAccessLevel": 1,
+    "isShortlisted": false,
+    "isViewedListing": false,
+    "skGarageSpaces": 2,
+    "skParkingSpaces": 2,
+    "skPoolType": 5
+   }
+  ]
+ }
+}

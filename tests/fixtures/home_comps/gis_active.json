@@ -1,0 +1,444 @@
+{}&&{
+ "version": 663,
+ "errorMessage": "Success",
+ "resultCode": 0,
+ "payload": {
+  "homes": [
+   {
+    "mlsId": {
+     "label": "MLS#",
+     "value": "12777484"
+    },
+    "showMlsId": false,
+    "mlsStatus": "Active",
+    "showDatasourceLogo": false,
+    "price": {
+     "value": 134500,
+     "level": 1
+    },
+    "hideSalePrice": false,
+    "hoa": {
+     "level": 1
+    },
+    "isHoaFrequencyKnown": true,
+    "sqFt": {
+     "value": 1752,
+     "level": 1
+    },
+    "pricePerSqFt": {
+     "value": 77,
+     "level": 1
+    },
+    "lotSize": {
+     "value": 15681,
+     "level": 1
+    },
+    "beds": 4,
+    "baths": 2.0,
+    "fullBaths": 2,
+    "location": {
+     "value": "Belleville",
+     "level": 1
+    },
+    "stories": 1.0,
+    "latLong": {
+     "value": {
+      "latitude": 38.5123554,
+      "longitude": -89.938039
+     },
+     "level": 1
+    },
+    "streetLine": {
+     "value": "1500 Vicksburg Dr",
+     "level": 1
+    },
+    "unitNumber": {
+     "level": 1
+    },
+    "city": "Belleville",
+    "state": "IL",
+    "zip": "62221",
+    "postalCode": {
+     "value": "62221",
+     "level": 1
+    },
+    "countryCode": "US",
+    "showAddressOnMap": true,
+    "soldDate": 1239606000000,
+    "searchStatus": 1,
+    "propertyType": 6,
+    "uiPropertyType": 1,
+    "listingType": 1,
+    "propertyId": 135095903,
+    "listingId": 224137204,
+    "dataSourceId": 68,
+    "isEarlyAccess": false,
+    "marketId": 35,
+    "yearBuilt": {
+     "value": 1969,
+     "level": 1
+    },
+    "dom": {
+     "value": 9,
+     "level": 1
+    },
+    "timeOnRedfin": {
+     "value": 790823560,
+     "level": 1
+    },
+    "originalTimeOnRedfin": {
+     "value": 790823563,
+     "level": 1
+    },
+    "timeZone": "US/Central",
+    "primaryPhotoDisplayLevel": 1,
+    "numPictures": 20,
+    "photoFormat": "webp",
+    "url": "/IL/Belleville/1500-Vicksburg-Dr-62221/home/135095903",
+    "hasInsight": false,
+    "isHot": false,
+    "hasVirtualTour": false,
+    "hasVideoTour": false,
+    "has3DTour": false,
+    "hasInteractiveFloorplan": false,
+    "isRedfin": false,
+    "isNewConstruction": false,
+    "remarksAccessLevel": 1,
+    "businessMarketId": 65,
+    "isShortlisted": false,
+    "isViewedListing": false,
+    "skGarageSpaces": 2,
+    "skParkingSpaces": 2,
+    "skPoolType": 5
+   },
+   {
+    "mlsId": {
+     "label": "MLS#",
+     "value": "26055921"
+    },
+    "showMlsId": false,
+    "mlsStatus": "Active",
+    "showDatasourceLogo": false,
+    "price": {
+     "value": 359900,
+     "level": 1
+    },
+    "hideSalePrice": false,
+    "hoa": {
+     "value": 42,
+     "level": 1
+    },
+    "isHoaFrequencyKnown": true,
+    "sqFt": {
+     "value": 1808,
+     "level": 1
+    },
+    "pricePerSqFt": {
+     "value": 199,
+     "level": 1
+    },
+    "lotSize": {
+     "value": 8276,
+     "level": 1
+    },
+    "beds": 3,
+    "baths": 2.0,
+    "fullBaths": 2,
+    "location": {
+     "value": "Orchard Lakes Ph 2",
+     "level": 1
+    },
+    "stories": 1.0,
+    "latLong": {
+     "value": {
+      "latitude": 38.4895128,
+      "longitude": -89.93113
+     },
+     "level": 1
+    },
+    "streetLine": {
+     "value": "656 Lake Mead Ct",
+     "level": 1
+    },
+    "unitNumber": {
+     "level": 1
+    },
+    "city": "Belleville",
+    "state": "IL",
+    "zip": "62220",
+    "postalCode": {
+     "value": "62220",
+     "level": 1
+    },
+    "countryCode": "US",
+    "showAddressOnMap": true,
+    "soldDate": 1563865200000,
+    "searchStatus": 1,
+    "propertyType": 6,
+    "uiPropertyType": 1,
+    "listingType": 1,
+    "propertyId": 134936476,
+    "listingId": 223213729,
+    "dataSourceId": 156,
+    "isEarlyAccess": false,
+    "marketId": 35,
+    "yearBuilt": {
+     "value": 2018,
+     "level": 1
+    },
+    "dom": {
+     "value": 31,
+     "level": 1
+    },
+    "timeOnRedfin": {
+     "value": 2659585094,
+     "level": 1
+    },
+    "originalTimeOnRedfin": {
+     "value": 3392198191,
+     "level": 1
+    },
+    "timeZone": "US/Central",
+    "primaryPhotoDisplayLevel": 1,
+    "numPictures": 33,
+    "photoFormat": "webp",
+    "url": "/IL/Belleville/656-Lake-Mead-Ct-62220/home/134936476",
+    "hasInsight": false,
+    "isHot": false,
+    "hasVirtualTour": true,
+    "hasVideoTour": false,
+    "has3DTour": false,
+    "hasInteractiveFloorplan": true,
+    "isRedfin": false,
+    "isNewConstruction": false,
+    "remarksAccessLevel": 1,
+    "businessMarketId": 65,
+    "isShortlisted": false,
+    "isViewedListing": false,
+    "skGarageSpaces": 2,
+    "skParkingSpaces": 2,
+    "skPoolType": 5
+   },
+   {
+    "mlsId": {
+     "label": "MLS#",
+     "value": "26042180"
+    },
+    "showMlsId": false,
+    "mlsStatus": "Active",
+    "showDatasourceLogo": false,
+    "price": {
+     "value": 290000,
+     "level": 1
+    },
+    "hideSalePrice": false,
+    "hoa": {
+     "value": 33,
+     "level": 1
+    },
+    "isHoaFrequencyKnown": true,
+    "sqFt": {
+     "value": 1509,
+     "level": 1
+    },
+    "pricePerSqFt": {
+     "value": 192,
+     "level": 1
+    },
+    "lotSize": {
+     "value": 9147,
+     "level": 1
+    },
+    "beds": 3,
+    "baths": 2.5,
+    "fullBaths": 2,
+    "partialBaths": 1,
+    "location": {
+     "value": "Orchard Lakes Ph 2",
+     "level": 1
+    },
+    "stories": 2.0,
+    "latLong": {
+     "value": {
+      "latitude": 38.487128,
+      "longitude": -89.9309984
+     },
+     "level": 1
+    },
+    "streetLine": {
+     "value": "1514 Orchard Lakes Cir",
+     "level": 1
+    },
+    "unitNumber": {
+     "level": 1
+    },
+    "city": "Belleville",
+    "state": "IL",
+    "zip": "62220",
+    "postalCode": {
+     "value": "62220",
+     "level": 1
+    },
+    "countryCode": "US",
+    "showAddressOnMap": true,
+    "searchStatus": 1,
+    "propertyType": 6,
+    "uiPropertyType": 1,
+    "listingType": 1,
+    "propertyId": 136043698,
+    "listingId": 223695963,
+    "dataSourceId": 156,
+    "isEarlyAccess": false,
+    "marketId": 35,
+    "yearBuilt": {
+     "value": 2026,
+     "level": 1
+    },
+    "dom": {
+     "value": 23,
+     "level": 1
+    },
+    "timeOnRedfin": {
+     "value": 2031258437,
+     "level": 1
+    },
+    "originalTimeOnRedfin": {
+     "value": 2031258440,
+     "level": 1
+    },
+    "timeZone": "US/Central",
+    "primaryPhotoDisplayLevel": 1,
+    "numPictures": 1,
+    "photoFormat": "webp",
+    "openHouseStart": 1792249200000,
+    "openHouseEnd": 1792260000000,
+    "openHouseStartFormatted": "Oct 17, 10:00AM",
+    "openHouseEventName": "Open House - 10:00 - 1:00 PM",
+    "url": "/IL/Belleville/1514-Orchard-Lakes-Cir-62220/home/136043698",
+    "hasInsight": false,
+    "isHot": false,
+    "hasVirtualTour": false,
+    "hasVideoTour": false,
+    "has3DTour": false,
+    "hasInteractiveFloorplan": false,
+    "isRedfin": false,
+    "isNewConstruction": true,
+    "remarksAccessLevel": 1,
+    "businessMarketId": 65,
+    "isShortlisted": false,
+    "isViewedListing": false,
+    "skGarageSpaces": 2,
+    "skParkingSpaces": 2,
+    "skPoolType": 5
+   },
+   {
+    "mlsId": {
+     "label": "MLS#",
+     "value": "26046664"
+    },
+    "showMlsId": false,
+    "mlsStatus": "Active",
+    "showDatasourceLogo": false,
+    "price": {
+     "value": 1150000,
+     "level": 1
+    },
+    "hideSalePrice": false,
+    "hoa": {
+     "value": 15,
+     "level": 1
+    },
+    "isHoaFrequencyKnown": true,
+    "sqFt": {
+     "value": 6806,
+     "level": 1
+    },
+    "pricePerSqFt": {
+     "value": 169,
+     "level": 1
+    },
+    "lotSize": {
+     "value": 45302,
+     "level": 1
+    },
+    "beds": 6,
+    "baths": 4.5,
+    "fullBaths": 4,
+    "partialBaths": 1,
+    "location": {
+     "value": "The Orchards",
+     "level": 1
+    },
+    "stories": 1.5,
+    "latLong": {
+     "value": {
+      "latitude": 38.4859187,
+      "longitude": -89.9252234
+     },
+     "level": 1
+    },
+    "streetLine": {
+     "value": "1511 18th Green Ct",
+     "level": 1
+    },
+    "unitNumber": {
+     "level": 1
+    },
+    "city": "Belleville",
+    "state": "IL",
+    "zip": "62220",
+    "postalCode": {
+     "value": "62220",
+     "level": 1
+    },
+    "countryCode": "US",
+    "showAddressOnMap": true,
+    "searchStatus": 1,
+    "propertyType": 6,
+    "uiPropertyType": 1,
+    "listingType": 1,
+    "propertyId": 136192593,
+    "listingId": 221971002,
+    "dataSourceId": 156,
+    "isEarlyAccess": false,
+    "marketId": 35,
+    "yearBuilt": {
+     "value": 1992,
+     "level": 1
+    },
+    "dom": {
+     "value": 63,
+     "level": 1
+    },
+    "timeOnRedfin": {
+     "value": 5424266841,
+     "level": 1
+    },
+    "originalTimeOnRedfin": {
+     "value": 6148481077,
+     "level": 1
+    },
+    "timeZone": "US/Central",
+    "primaryPhotoDisplayLevel": 1,
+    "numPictures": 80,
+    "photoFormat": "webp",
+    "url": "/IL/Belleville/1511-18th-Green-Ct-62220/home/136192593",
+    "hasInsight": false,
+    "isHot": false,
+    "hasVirtualTour": true,
+    "hasVideoTour": true,
+    "has3DTour": false,
+    "hasInteractiveFloorplan": true,
+    "isRedfin": false,
+    "isNewConstruction": false,
+    "remarksAccessLevel": 1,
+    "businessMarketId": 65,
+    "isShortlisted": false,
+    "isViewedListing": false,
+    "skGarageSpaces": 3,
+    "skParkingSpaces": 3,
+    "skPoolType": 0
+   }
+  ]
+ }
+}
