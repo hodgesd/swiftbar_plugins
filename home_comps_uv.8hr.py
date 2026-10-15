@@ -99,6 +99,9 @@ UA = (
 
 MONO_F = "font=SFMono-Regular"
 MONO = f"{MONO_F} size=12"
+# Table rows need a real monospace face; SFMono isn't installed system-wide, so
+# "SFMono-Regular" silently falls back to the proportional system font.
+TABLE = "font=Menlo size=11"
 HEADER_FONT = "font=SF Pro Display size=13"
 TITLE_FONT = "font=SF Pro Display size=14"
 DIMMED = "color=#8E8E93"
@@ -596,7 +599,7 @@ def listing_row(h, last_col, kind, prefix="     "):
     cols = (f"{clamp(h['address'], ADDR_W):<{ADDR_W}} {fmt_price(h['price']):>10} "
             f"{fmt_bb(h['beds'], h['baths']):>9} {fmt_num(h['sqft']):>6} "
             f"{fmt_num(h['ppsf'], '$'):>5} {last_col:>6}")
-    params = [MONO_F, "size=11", f'tooltip="{tooltip_for(h, kind)}"']
+    params = [TABLE, f'tooltip="{tooltip_for(h, kind)}"']
     if h.get("url"):
         params.append(f"href={h['url']}")
     if kind == "active":
@@ -612,7 +615,7 @@ def listing_row(h, last_col, kind, prefix="     "):
 def column_header(last_col, prefix="     "):
     cols = (f"{'ADDRESS':<{ADDR_W}} {'PRICE':>10} {'BD/BA':>9} {'SQFT':>6} "
             f"{'$/SF':>5} {last_col:>6}")
-    return f"{prefix}{cols} | {MONO_F} {LABEL_COLOR} size=10"
+    return f"{prefix}{cols} | {TABLE} {LABEL_COLOR}"
 
 
 def stale_line(info):
