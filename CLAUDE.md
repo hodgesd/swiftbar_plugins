@@ -93,6 +93,8 @@ Filenames use format: `name.{interval}.py` where interval is:
 - The CSV endpoint returns no rows for the St. Louis MLS, and autocomplete / initialInfo return 403; the Redfin Estimate comes from the home page's embedded `avmInfo`
 - Home lat/lon come from the US Census geocoder and the home URL from a tiny-box sold-history search, both cached in `location.json`
 - `listings_state.json` tracks first-seen dates and prices for the NEW and price-change badges; failed fetches fall back to the last good cache
+- Results carry `uiPropertyType` (same codes as the `uipt` filter: 1 house, 2 condo, 3 townhouse, 5 land); `property_types` in config defaults to houses. Sold results have no list price or DOM, so sale-to-list / days-to-sell come from `listings_state.json` and fill in over time
+- `listings_state.json` also keeps a daily Redfin Estimate history for the trend line; the comps value uses the 5 most similar sales within 60–160% of the home's sqft
 - `./home_comps_uv.8hr.py --check` prints per-source counts and exits 1 on failure
 
 **cprt.1d.py**: Authenticated RSS feed parser

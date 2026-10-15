@@ -220,6 +220,7 @@ def test_config_env_fallback_and_defaults(tmp_path):
     cfg = hc.load_config(str(tmp_path / "none.json"), env)
     assert cfg["radius"] == 3.0 and cfg["sold_days"] == 90
     assert cfg["lat"] is None and cfg["redfin_url"] == ""
+    assert cfg["property_types"] == [1]
 
 
 def test_config_missing_fields(tmp_path):
@@ -244,7 +245,7 @@ def test_render_badges_and_title(capsys):
                "home": ({"estimate": 462148, "beds": 4.0, "baths": 3.0, "sqft": 2800,
                          "year_built": 1993}, {"error": None, "fetched": time.time()})}
     cfg = {"address": "2616 Pro Tour Dr", "city": "Belleville", "state": "IL", "zip": "62220",
-           "radius": 1.5, "sold_days": 90}
+           "radius": 1.5, "sold_days": 90, "property_types": [1]}
     hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
     out = capsys.readouterr().out.splitlines()
     assert out[0] == "⌂ $462K | font=SF Pro Display size=14"
@@ -256,3 +257,126 @@ def test_render_badges_and_title(capsys):
     assert out.index(next(line for line in out if "2 Fresh Ct" in line)) < out.index(cut)
     assert any("Sep 30" in line for line in out)
     assert all(line.count("size=") <= 1 for line in out if "|" in line)
+
+
+# --- property types ---------------------------------------------------------------------
+
+def test_parse_property_types():
+    assert hc.parse_property_types(None) == [1]
+    assert hc.parse_property_types(["House", "condo"]) == [1, 2]
+    assert hc.parse_property_types("townhouse, bogus") == [3]
+    assert hc.parse_property_types("bogus") == [1]
+
+
+def test_gis_params_types():
+    assert hc.gis_params("p", "active", types=[1, 3])["uipt"] == "1,3"
+    assert hc.gis_params("p", "sold")["uipt"] == "1,2,3,4,5,6,7,8"  # home-URL discovery
+
+
+def test_parse_gis_property_type():
+    assert all(h["ptype"] in hc.PROPERTY_TYPES.values()
+               for h in hc.parse_gis(read("gis_active.json")))
+
+
+# --- estimate trend ---------------------------------------------------------------------
+
+def test_estimate_trend_needs_history():
+    assert hc.estimate_trend({}, TODAY) is None
+    hist = {(TODAY - timedelta(days=3)).isoformat(): 450000, TODAY.isoformat(): 455000}
+    assert hc.estimate_trend(hist, TODAY) is None
+
+
+def test_estimate_trend_uses_30_day_base():
+    hist = {(TODAY - timedelta(days=45)).isoformat(): 400000,
+            (TODAY - timedelta(days=31)).isoformat(): 440000,
+            (TODAY - timedelta(days=10)).isoformat(): 450000,
+            TODAY.isoformat(): 462000}
+    change, pct, since = hc.estimate_trend(hist, TODAY)
+    assert change == 22000 and round(pct, 1) == 5.0
+    assert since == (TODAY - timedelta(days=31)).isoformat()
+
+
+def test_estimate_trend_short_history_and_drop():
+    hist = {(TODAY - timedelta(days=8)).isoformat(): 470000, TODAY.isoformat(): 462000}
+    change, _, since = hc.estimate_trend(hist, TODAY)
+    assert change == -8000 and since == (TODAY - timedelta(days=8)).isoformat()
+
+
+def test_record_estimate_prunes_and_skips_none():
+    state = {"estimates": {"2020-01-01": 1}}
+    hc.record_estimate(state, None, TODAY)
+    assert state["estimates"] == {}
+    hc.record_estimate(state, 462148, TODAY)
+    assert state["estimates"] == {TODAY.isoformat(): 462148}
+
+
+# --- comps ------------------------------------------------------------------------------
+
+SUBJECT = {"beds": 4.0, "baths": 3.0, "sqft": 2800, "year_built": 1993}
+
+
+def test_closest_comps_prefers_similar_homes():
+    sold = [home("tiny", 235000, sqft=864, ppsf=272, beds=3.0, baths=2.5, dist=0.2),
+            home("big", 580000, sqft=4272, ppsf=136, beds=4.0, baths=3.0, dist=0.5),
+            home("twin", 429000, sqft=2750, ppsf=156, beds=4.0, baths=3.0, year_built=1994,
+                 dist=0.4),
+            home("nosf", 300000, sqft=None, ppsf=None, dist=0.1)]
+    comps = hc.closest_comps(sold, SUBJECT, 1.5)
+    assert [h["id"] for h in comps] == ["twin", "big"]  # tiny is outside 60-160% of size
+    assert hc.closest_comps(sold, {"sqft": None}, 1.5) == []
+    assert hc.closest_comps(sold, None, 1.5) == []
+
+
+def test_comps_value_uses_median_ppsf():
+    comps = [home(str(i), 1, ppsf=p, dist=0.1) for i, p in enumerate([150, 160, 170])]
+    assert hc.comps_value(comps, SUBJECT) == (448000, 160, 3)
+    assert hc.comps_value([], SUBJECT) is None
+
+
+# --- market pace ------------------------------------------------------------------------
+
+def test_pace_line():
+    active = [home("a", 1, dom=10), home("b", 1, dom=30), home("c", 1, dom=None)]
+    assert hc.pace_line(active, [home("p", 1)]) == \
+        "Median 20d on market  ·  1 of 4 under contract"
+    assert hc.pace_line([], []) is None
+
+
+def test_sale_history_and_sold_pace():
+    state = {"listings": {
+        "s1": {"price": 400000, "first_seen": "2026-08-01"},
+        "s2": {"price": 300000, "first_seen": "2026-09-01"},
+        "relist": {"price": 100000, "first_seen": "2026-09-01"}}}
+    sold = [home("s1", 392000, sold_date="2026-09-10"),
+            home("s2", 300000, sold_date="2026-09-21"),
+            home("relist", 400000, sold_date="2026-09-21"),
+            home("untracked", 350000, sold_date="2026-09-21")]
+    assert hc.sale_history(sold[0], state) == (400000, 40)
+    assert hc.sale_history(sold[2], state) is None
+    assert hc.sold_pace_line(sold, state) == "Sold at 99% of list  ·  ~30d to sell  (2 of 4 tracked)"
+    assert hc.sold_pace_line(sold[3:], state) is None
+
+
+def test_render_filters_types_stars_comps_and_trend(capsys):
+    hc.write_json(hc.STATE_FILE, {"estimates": {(TODAY - timedelta(days=30)).isoformat(): 450000}})
+    land = home("lot", 45000, sqft=None, ppsf=None, beds=0.0, ptype=5, address="9 Lot Ct")
+    sold = [home("twin", 429000, sqft=2750, ppsf=156, beds=4.0, baths=3.0, ptype=1,
+                 status="Closed", sold_date="2026-09-01", address="1 Twin Ct"),
+            home("tiny", 235000, sqft=864, ppsf=272, ptype=1, status="Closed",
+                 sold_date="2026-10-01", address="2 Tiny Ct")]
+    results = {"active": ([land, home("h", 400000, dom=5, ptype=1)], {"error": None, "fetched": 1}),
+               "pending": ([], {"error": None, "fetched": 1}),
+               "sold": (sold, {"error": None, "fetched": 1}),
+               "home": ({**SUBJECT, "estimate": 462000}, {"error": None, "fetched": 1})}
+    cfg = {"address": "2616 Pro Tour Dr", "city": "Belleville", "state": "IL", "zip": "62220",
+           "radius": 1.5, "sold_days": 90, "property_types": [1]}
+    hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
+    out = capsys.readouterr().out.splitlines()
+    assert not any("9 Lot Ct" in line for line in out)
+    assert any(line.startswith("     ▲ $12,000  (+2.7%)  since 9/14") for line in out)
+    assert any("Comps value  ≈" in line for line in out)
+    rows = [line for line in out if "href=https://x/" in line and line.startswith("     ")]
+    sold_rows = [line for line in rows if "Twin Ct" in line or "Tiny Ct" in line]
+    assert "1 Twin Ct" in sold_rows[0] and "★" in sold_rows[0] and "★" not in sold_rows[1]
+    assert any("$156/sf · 1 closest sale)" in line for line in out)
+    assert hc.read_json(hc.STATE_FILE)["estimates"][TODAY.isoformat()] == 462000

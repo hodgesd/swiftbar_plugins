@@ -5,7 +5,7 @@
 # ///
 
 # <swiftbar.title>Neighborhood Real Estate Monitor</swiftbar.title>
-# <swiftbar.version>v2.0</swiftbar.version>
+# <swiftbar.version>v2.1</swiftbar.version>
 # <swiftbar.author>Derrick</swiftbar.author>
 # <swiftbar.author.github>hdgs</swiftbar.author.github>
 # <swiftbar.desc>Active, pending and sold homes around your address plus your Redfin Estimate, with NEW and price-drop tracking. Configure via ~/.config/swiftbar-plugins/home_comps_uv.json</swiftbar.desc>
@@ -14,7 +14,7 @@
 # <swiftbar.hideLastUpdated>false</swiftbar.hideLastUpdated>
 # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
-# <swiftbar.environment>[REDFIN_ADDRESS:, REDFIN_CITY:, REDFIN_STATE:, REDFIN_ZIP:, REDFIN_LAT:, REDFIN_LON:, REDFIN_RADIUS:3, REDFIN_SOLD_DAYS:90, REDFIN_URL:]</swiftbar.environment>
+# <swiftbar.environment>[REDFIN_ADDRESS:, REDFIN_CITY:, REDFIN_STATE:, REDFIN_ZIP:, REDFIN_LAT:, REDFIN_LON:, REDFIN_RADIUS:3, REDFIN_SOLD_DAYS:90, REDFIN_URL:, REDFIN_PROPERTY_TYPES:house]</swiftbar.environment>
 
 """
 Neighborhood Real Estate Monitor — SwiftBar Plugin
@@ -42,12 +42,19 @@ Config: ~/.config/swiftbar-plugins/home_comps_uv.json
       "radius":    1.5,                optional, miles (default 3)
       "sold_days": 90,                 optional (default 90)
       "redfin_url": "https://www.redfin.com/IL/.../home/123"   optional
+      "property_types": ["house"]      optional; any of house, condo, townhouse,
+                                       multi-family, land, other, manufactured, co-op
     }
 REDFIN_* environment variables work as a fallback for every key.
 
 Caches live in ~/.cache/swiftbar-plugins/home_comps_uv/. A failed fetch falls
 back to the last good copy and says so in the menu. listings_state.json keeps
-first-seen dates and prices per property for the NEW / price-change badges.
+first-seen dates and prices per property for the NEW / price-change badges,
+plus a daily history of your Redfin Estimate for the trend line. Sold homes
+that were tracked while listed get sale-to-list and days-to-sell figures.
+
+Comps value = median $/sf of the most similar recent sales (size, beds,
+baths, age, distance) times your square footage. The closest few are starred.
 
 CLI:
   ./home_comps_uv.8hr.py            render the menu
@@ -87,6 +94,16 @@ CHANGE_DAYS = 30           # show a price change made within this many days
 STATE_KEEP_DAYS = 120      # forget properties not seen for this long
 MAX_ROWS = 15
 ADDR_W = 24
+COMP_COUNT = 5             # sales behind the comps value
+STAR_COUNT = 3             # closest sales starred and listed first
+TREND_DAYS = 30            # estimate trend window
+TREND_MIN_DAYS = 7         # show a shorter trend once there's this much history
+ESTIMATE_KEEP_DAYS = 400
+
+# Redfin's uipt search filter; results carry the same code as uiPropertyType.
+PROPERTY_TYPES = {"house": 1, "condo": 2, "townhouse": 3, "multi-family": 4, "land": 5,
+                  "other": 6, "manufactured": 7, "co-op": 8}
+DEFAULT_PROPERTY_TYPES = ["house"]
 
 GIS_URL = "https://www.redfin.com/stingray/api/gis"
 CENSUS_URL = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
@@ -146,11 +163,19 @@ def load_config(path=CONFIG_PATH, env=os.environ):
         "radius": _float(get("radius", "REDFIN_RADIUS", "3")) or 3.0,
         "sold_days": _int(get("sold_days", "REDFIN_SOLD_DAYS", "90")) or 90,
         "redfin_url": str(get("redfin_url", "REDFIN_URL")).strip(),
+        "property_types": parse_property_types(get("property_types", "REDFIN_PROPERTY_TYPES")),
     }
     missing = [k for k in ("address", "city", "state", "zip") if not out[k]]
     if missing:
         raise ConfigError(missing)
     return out
+
+
+def parse_property_types(val):
+    """List or comma string of PROPERTY_TYPES names → sorted uipt codes."""
+    names = val if isinstance(val, list) else str(val or "").split(",")
+    codes = {PROPERTY_TYPES.get(str(n).strip().lower()) for n in names} - {None}
+    return sorted(codes or {PROPERTY_TYPES[n] for n in DEFAULT_PROPERTY_TYPES})
 
 
 # ─── Small helpers ───────────────────────────────────────────────────────
@@ -256,6 +281,7 @@ def normalize_home(h):
         "lon": _float(ll.get("longitude")),
         "year_built": _int(_val(h.get("yearBuilt"))),
         "hoa": _int(_val(h.get("hoa"))),
+        "ptype": _int(h.get("uiPropertyType")),
     }
 
 
@@ -378,6 +404,99 @@ def annotate(h, state, today):
     return h
 
 
+# ─── Estimate trend, comps, market pace (pure) ───────────────────────────
+
+def record_estimate(state, estimate, today):
+    hist = state.setdefault("estimates", {})
+    if estimate:
+        hist[today.isoformat()] = estimate
+    cutoff = (today - timedelta(days=ESTIMATE_KEEP_DAYS)).isoformat()
+    for d in [d for d in hist if d < cutoff]:
+        del hist[d]
+    return state
+
+
+def estimate_trend(hist, today):
+    """(change, pct, since_date) against the estimate TREND_DAYS ago, or against
+    the oldest one once there's TREND_MIN_DAYS of history; None before that."""
+    if not hist:
+        return None
+    days = sorted(hist)
+    current = hist[days[-1]]
+    window = (today - timedelta(days=TREND_DAYS)).isoformat()
+    older = [d for d in days if d <= window]
+    base = older[-1] if older else days[0]
+    if (today - date.fromisoformat(base)).days < TREND_MIN_DAYS or not hist[base]:
+        return None
+    change = current - hist[base]
+    return change, change / hist[base] * 100, base
+
+
+def similarity(h, subject, radius):
+    """Lower is closer. Size dominates; beds, baths, age and distance refine."""
+    score = abs(math.log(h["sqft"] / subject["sqft"])) * 2
+    if subject.get("beds") and h.get("beds"):
+        score += abs(h["beds"] - subject["beds"]) * 0.25
+    if subject.get("baths") and h.get("baths") is not None:
+        score += abs(h["baths"] - subject["baths"]) * 0.15
+    if subject.get("year_built") and h.get("year_built"):
+        score += min(abs(h["year_built"] - subject["year_built"]), 40) / 40 * 0.5
+    score += h.get("dist", 0) / radius * 0.5
+    return score
+
+
+def closest_comps(sold, subject, radius):
+    """Similar-sized sold homes ranked by similarity; empty without the subject's sqft."""
+    if not (subject and subject.get("sqft")):
+        return []
+    lo, hi = subject["sqft"] * 0.6, subject["sqft"] * 1.6  # $/sf doesn't carry across sizes
+    usable = [h for h in sold if h.get("ppsf") and h.get("price")
+              and h.get("sqft") and lo <= h["sqft"] <= hi]
+    return sorted(usable, key=lambda h: similarity(h, subject, radius))
+
+
+def comps_value(comps, subject):
+    top = comps[:COMP_COUNT]
+    if not top:
+        return None
+    ppsf = statistics.median(h["ppsf"] for h in top)
+    return round(ppsf * subject["sqft"], -3), round(ppsf), len(top)
+
+
+def sale_history(h, state):
+    """(list price, days to sell) for a sold home tracked while it was listed."""
+    rec = (state.get("listings") or {}).get(h["id"]) or {}
+    lp, first = rec.get("price"), rec.get("first_seen")
+    if not (lp and h["price"] and first and h.get("sold_date")):
+        return None
+    ratio = h["price"] / lp
+    if not 0.5 <= ratio <= 1.5:  # relisted years later, or a bad record
+        return None
+    return lp, (date.fromisoformat(h["sold_date"]) - date.fromisoformat(first)).days
+
+
+def pace_line(active, pending):
+    doms = [h["dom"] for h in active if h["dom"] is not None]
+    bits = []
+    if doms:
+        bits.append(f"Median {int(statistics.median(doms))}d on market")
+    if active or pending:
+        bits.append(f"{len(pending)} of {len(active) + len(pending)} under contract")
+    return "  ·  ".join(bits) or None
+
+
+def sold_pace_line(sold, state):
+    known = [(h["price"] / lp, days) for h in sold if (x := sale_history(h, state))
+             for lp, days in [x]]
+    if not known:
+        return None
+    days = [d for _, d in known if d >= 0]
+    s = f"Sold at {statistics.median(r for r, _ in known) * 100:.0f}% of list"
+    if days:
+        s += f"  ·  ~{int(statistics.median(days))}d to sell"
+    return s + f"  ({len(known)} of {len(sold)} tracked)"
+
+
 # ─── Cache with stale fallback ───────────────────────────────────────────
 
 def _cache_path(name):
@@ -435,9 +554,12 @@ def force_stale():
 
 # ─── Fetchers ────────────────────────────────────────────────────────────
 
-def gis_params(poly, kind, sold_days=90):
+ALL_TYPES = sorted(PROPERTY_TYPES.values())
+
+
+def gis_params(poly, kind, sold_days=90, types=ALL_TYPES):
     p = {"al": 1, "mpt": 99, "num_homes": 350, "ord": "redfin-recommended-asc",
-         "page_number": 1, "start": 0, "poly": poly, "uipt": "1,2,3,4,5,6,7,8", "v": 8}
+         "page_number": 1, "start": 0, "poly": poly, "uipt": ",".join(map(str, types)), "v": 8}
     if kind == "active":
         p["status"] = 9
     elif kind == "pending":
@@ -449,8 +571,8 @@ def gis_params(poly, kind, sold_days=90):
     return p
 
 
-def fetch_gis(poly, kind, sold_days=90):
-    return parse_gis(http_get(GIS_URL, gis_params(poly, kind, sold_days)))
+def fetch_gis(poly, kind, sold_days=90, types=ALL_TYPES):
+    return parse_gis(http_get(GIS_URL, gis_params(poly, kind, sold_days, types)))
 
 
 def geocode(cfg):
@@ -499,10 +621,12 @@ def resolve_location(cfg):
 
 def gather(cfg, lat, lon, url):
     poly = bbox_poly(lat, lon, cfg["radius"])
+    types = cfg["property_types"]
     jobs = {
-        "active": ("active.json", LIST_TTL, lambda: fetch_gis(poly, "active")),
-        "pending": ("pending.json", LIST_TTL, lambda: fetch_gis(poly, "pending")),
-        "sold": ("sold.json", LIST_TTL, lambda: fetch_gis(poly, "sold", cfg["sold_days"])),
+        "active": ("active.json", LIST_TTL, lambda: fetch_gis(poly, "active", types=types)),
+        "pending": ("pending.json", LIST_TTL, lambda: fetch_gis(poly, "pending", types=types)),
+        "sold": ("sold.json", LIST_TTL,
+                 lambda: fetch_gis(poly, "sold", cfg["sold_days"], types)),
     }
     if url:
         jobs["home"] = ("home.json", HOME_TTL, lambda: parse_home_page(http_get(url)))
@@ -580,6 +704,14 @@ def tooltip_for(h, kind):
                         f"on {h['changed_on']}")
         if h.get("orig_price"):
             bits.append(f"originally {fmt_price(h['orig_price'])}")
+    if kind == "sold":
+        if h.get("close"):
+            bits.append("★ one of the closest comps to your home")
+        if h.get("list_price"):
+            bits.append(f"listed at {fmt_price(h['list_price'])} "
+                        f"({h['price'] / h['list_price'] * 100:.0f}% of list)")
+        if h.get("days_to_sell") is not None:
+            bits.append(f"{h['days_to_sell']}d to sell")
     return clean(" · ".join(bits))
 
 
@@ -609,6 +741,8 @@ def listing_row(h, last_col, kind, prefix="     "):
             params.append(ACCENT_ORANGE)
         elif h.get("is_new"):
             params.append(ACCENT_GREEN)
+    if kind == "sold" and h.get("close"):
+        cols += "  ★"
     return f"{prefix}{clean(cols)} | {' '.join(params)}"
 
 
@@ -659,25 +793,39 @@ def render(cfg, lat, lon, url, url_note, results, today):
     sold_raw, sold_info = results["sold"]
     home, home_info = results.get("home", (None, None))
 
-    active = within_radius(active_raw or [], lat, lon, radius)
-    pending = within_radius(pending_raw or [], lat, lon, radius)
-    cutoff = (today - timedelta(days=cfg["sold_days"])).isoformat()
-    sold = [h for h in within_radius(sold_raw or [], lat, lon, radius)
-            if h["sold_date"] and h["sold_date"] >= cutoff]
+    types = set(cfg["property_types"])
 
+    def nearby(homes):  # caches written before the type filter may hold other types
+        return [h for h in within_radius(homes or [], lat, lon, radius)
+                if h.get("ptype") is None or h["ptype"] in types]
+
+    active = nearby(active_raw)
+    pending = nearby(pending_raw)
+    cutoff = (today - timedelta(days=cfg["sold_days"])).isoformat()
+    sold = [h for h in nearby(sold_raw) if h["sold_date"] and h["sold_date"] >= cutoff]
+
+    state = read_json(STATE_FILE, {}) or {}
     if active_raw is not None or pending_raw is not None:
-        state = read_json(STATE_FILE, {}) or {}
         update_state(state, active + pending, today)
-        write_json(STATE_FILE, state)
-    else:
-        state = read_json(STATE_FILE, {}) or {}
+    if home and not (home_info or {}).get("error"):
+        record_estimate(state, home.get("estimate"), today)
+    write_json(STATE_FILE, state)
     for h in active:
         annotate(h, state, today)
+    for h in sold:
+        hist = sale_history(h, state)
+        h["list_price"], h["days_to_sell"] = hist if hist else (None, None)
 
     # New listings first, then price cuts, so neither falls past MAX_ROWS.
     active.sort(key=lambda h: (not h["is_new"], (h.get("change") or 0) >= 0, -(h["price"] or 0)))
     pending.sort(key=lambda h: -(h["price"] or 0))
     sold.sort(key=lambda h: h["sold_date"], reverse=True)
+    comps = closest_comps(sold, home, radius)
+    starred = {h["id"] for h in comps[:STAR_COUNT]}
+    for h in sold:
+        h["close"] = h["id"] in starred
+    # Closest comps first (in similarity order), then the rest newest first.
+    sold = comps[:STAR_COUNT] + [h for h in sold if not h["close"]]
     new_count = sum(h["is_new"] for h in active)
     cuts = sum(1 for h in active if (h.get("change") or 0) < 0)
 
@@ -698,8 +846,21 @@ def render(cfg, lat, lon, url, url_note, results, today):
             per_sf = f"  (${round(estimate / home['sqft'])}/sf)" if home.get("sqft") else ""
             print(f"     Redfin Estimate  {fmt_price(estimate)}{per_sf} "
                   f"| {MONO_F} {ACCENT_GREEN} size=13")
+            trend = estimate_trend(state.get("estimates"), today)
+            if trend:
+                change, pct, since = trend
+                arrow, color = ("▲", ACCENT_GREEN) if change >= 0 else ("▼", ACCENT_RED)
+                since_txt = date.fromisoformat(since).strftime("%-m/%-d")
+                print(f"     {arrow} {fmt_price(abs(change))}  ({pct:+.1f}%)  since {since_txt} "
+                      f"| {MONO_F} {color} size=11")
         else:
             print(f"     Redfin isn't showing an estimate for this home | {MONO} {DIMMED}")
+        cv = comps_value(comps, home)
+        if cv:
+            value, ppsf, n = cv
+            names = ", ".join(h["address"] for h in comps[:n])
+            print(f"     Comps value  ≈ {fmt_short(value)}  (${ppsf}/sf · {n} closest {'sale' if n == 1 else 'sales'}) "
+                  f"| {MONO_F} {LABEL_COLOR} size=12 tooltip=\"{clean('From ' + names)}\"")
         facts = []
         if home.get("beds") is not None:
             facts.append(f"{home['beds']:g}bd")
@@ -733,6 +894,8 @@ def render(cfg, lat, lon, url, url_note, results, today):
     if active:
         if stats_line(active):
             print(f"     {stats_line(active)} | {MONO_F} {DIMMED} size=11")
+        if pace_line(active, pending):
+            print(f"     {pace_line(active, pending)} | {MONO_F} {DIMMED} size=11")
         print(column_header("DOM"))
         for h in active[:MAX_ROWS]:
             dom = f"{h['dom']}d" if h["dom"] is not None else "—"
@@ -760,6 +923,8 @@ def render(cfg, lat, lon, url, url_note, results, today):
     if sold:
         if stats_line(sold):
             print(f"     {stats_line(sold)} | {MONO_F} {DIMMED} size=11")
+        if sold_pace_line(sold, state):
+            print(f"     {sold_pace_line(sold, state)} | {MONO_F} {DIMMED} size=11")
         print(column_header("SOLD"))
         for h in sold[:MAX_ROWS]:
             d = date.fromisoformat(h["sold_date"]).strftime("%b %-d")
