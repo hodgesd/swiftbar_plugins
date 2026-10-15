@@ -48,6 +48,7 @@ MAX_ITEMS = 12
 MAX_AGE_DAYS = 14
 MAX_TITLE = 64
 THREAD_FETCH_TIMEOUT = 15
+FEED_FETCH_TIMEOUT = 15
 THREAD_FETCH_WORKERS = 6
 CACHE_PATH = Path.home() / ".cache" / "swiftbar-plugins" / "deals_threads.json"
 CACHE_TTL = 24 * 3600
@@ -58,13 +59,13 @@ POWER_TOOL_WORDS = re.compile(
     r"nailer|stapler|trimmer|blower|mower|chainsaw|vacuum|vac|compressor|"
     r"combo kit|kit|battery|batteries|charger|flashlight|light|inflator|"
     r"multi-?tool|oscillating tool|pressure washer|shear|polisher|heat gun|"
-    r"ratchet|wrench|cut-?off|tool only|brushless|20v|60v|flexvolt|xr\b)",
+    r"ratchet|wrench|cut-?off|tool only|brushless|20v|60v|flexvolt|xr)s?\b",
     re.I,
 )
 ACCESSORY_WORDS = re.compile(
-    r"\b(bit set|bits?\b|blades?\b|holder|extension|case|bag|socket|screwdriver|"
+    r"\b(bit set|bit|blade|holder|extension|case|bag|socket|screwdriver|"
     r"knife|tape measure|glove|pencil|marker|sandpaper|disc|abrasive|hose|"
-    r"ear|safety|level|clamp|knee)",
+    r"ear|safety|level|clamp|knee)s?\b",
     re.I,
 )
 POWER_TOOL_CATEGORIES = ("Drills & Power Tools", "Power Tools", "Outdoor Power")
@@ -159,8 +160,12 @@ def first_price(text: str) -> Optional[float]:
 def strip_price(title: str) -> str:
     """Drop the price (and a leading store tag) from the title since the row carries both."""
     t = re.sub(r"^\s*(?:\[?\s*micro\s?center\s*\]?\s*:?\s*|lowe'?s\s*:?\s*)", "", title, flags=re.I)
-    t = re.sub(r"^\s*\$[\d,]+(?:\.\d{1,2})?\*?\s*(?:[:⎮|-]\s*)?", "", t)
-    t = re.sub(r"\s*(?:for|@|-|–)?\s*\$[\d,]+(?:\.\d{1,2})?\*?(\s*\+\s*free[^,(]*)?", "", t, count=1, flags=re.I)
+    not_discount = r"(?![\d,.]*\*?\s*(?:off|discount|rebate|gift|credit)\b)"
+    t = re.sub(rf"^\s*\${not_discount}[\d,]+(?:\.\d{{1,2}})?\*?\s*(?:[:⎮|-]\s*)?", "", t, flags=re.I)
+    t = re.sub(
+        rf"\s*(?:for|@|-|–)?\s*\${not_discount}[\d,]+(?:\.\d{{1,2}})?\*?(\s*\+\s*free[^,(]*)?",
+        "", t, count=1, flags=re.I,
+    )
     t = re.sub(r"\s{2,}", " ", t).strip(" -–:⎮")
     return t or title
 
@@ -204,7 +209,11 @@ def parse_entry(entry) -> Deal:
 def fetch(query: str) -> list[Deal] | Exception:
     url = SLICKDEALS_SEARCH.format(query=query)
     try:
-        feed = feedparser.parse(url)
+        from curl_cffi import requests as creq
+
+        r = creq.get(url, impersonate="chrome", timeout=FEED_FETCH_TIMEOUT)
+        r.raise_for_status()
+        feed = feedparser.parse(r.text)
     except Exception as e:  # pragma: no cover - network
         return e
     if feed.bozo and not feed.entries:
@@ -354,11 +363,7 @@ def main() -> int:
     if not isinstance(dw, Exception):
         dw = [d for d in dw if "lowe" in (d.source + " " + d.title).lower()]
 
-    shown: list[Deal] = []
-    for lst in (mc, dw):
-        if not isinstance(lst, Exception):
-            shown.extend(lst[: MAX_ITEMS + 4])
-    enrich(shown)
+    enrich([d for lst in (mc, dw) if not isinstance(lst, Exception) for d in lst])
 
     if not isinstance(mc, Exception):
         mc = [d for d in mc if not d.expired]
@@ -373,7 +378,10 @@ def main() -> int:
             )
         )
 
-    print("💻")
+    if isinstance(mc, Exception) and isinstance(dw, Exception):
+        print("| sfimage=exclamationmark.triangle sfcolor=red")
+    else:
+        print("| sfimage=tag.fill")
     print("---")
     print_section("Micro Center", "Micro Center Top Deals ↗", MICROCENTER_STORE_URL, mc)
     print("---")
