@@ -14,7 +14,7 @@
 # <swiftbar.hideLastUpdated>false</swiftbar.hideLastUpdated>
 # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
-# <swiftbar.environment>[REDFIN_ADDRESS:, REDFIN_CITY:, REDFIN_STATE:, REDFIN_ZIP:, REDFIN_LAT:, REDFIN_LON:, REDFIN_RADIUS:3, REDFIN_SOLD_DAYS:90, REDFIN_URL:, REDFIN_PROPERTY_TYPES:house]</swiftbar.environment>
+# <swiftbar.environment>[REDFIN_ADDRESS:, REDFIN_CITY:, REDFIN_STATE:, REDFIN_ZIP:, REDFIN_LAT:, REDFIN_LON:, REDFIN_RADIUS:3, REDFIN_SOLD_DAYS:90, REDFIN_URL:, REDFIN_PROPERTY_TYPES:house, REDFIN_MAP:]</swiftbar.environment>
 
 """
 Neighborhood Real Estate Monitor — SwiftBar Plugin
@@ -42,8 +42,12 @@ Config: ~/.config/swiftbar-plugins/home_comps_uv.json
       "radius":    1.5,                optional, miles (default 3)
       "sold_days": 90,                 optional (default 90)
       "redfin_url": "https://www.redfin.com/IL/.../home/123"   optional
+      "beds":      5,                  optional; overrides Redfin's bedroom count
+                                       for the comps only (not the Redfin Estimate)
       "property_types": ["house"]      optional; any of house, condo, townhouse,
                                        multi-family, land, other, manufactured, co-op
+      "map":       "~/Documents/Maps/area.html"   optional; local neighborhood map,
+                                       linked beside "View on Redfin" when the file exists
     }
 REDFIN_* environment variables work as a fallback for every key.
 
@@ -54,7 +58,8 @@ plus a daily history of your Redfin Estimate for the trend line. Sold homes
 that were tracked while listed get sale-to-list and days-to-sell figures.
 
 Comps value = median $/sf of the most similar recent sales (size, beds,
-baths, age, distance) times your square footage. The closest few are starred.
+baths, age, distance) times your square footage, plus BED_ADJ per bedroom
+you have beyond the comps' median. The closest few are starred.
 
 CLI:
   ./home_comps_uv.8hr.py            render the menu
@@ -95,6 +100,7 @@ STATE_KEEP_DAYS = 120      # forget properties not seen for this long
 MAX_ROWS = 15
 ADDR_W = 24
 COMP_COUNT = 5             # sales behind the comps value
+BED_ADJ = 10_000           # comps value adjustment per bedroom vs the comps' median
 STAR_COUNT = 3             # closest sales starred and listed first
 TREND_DAYS = 30            # estimate trend window
 TREND_MIN_DAYS = 7         # show a shorter trend once there's this much history
@@ -163,7 +169,9 @@ def load_config(path=CONFIG_PATH, env=os.environ):
         "radius": _float(get("radius", "REDFIN_RADIUS", "3")) or 3.0,
         "sold_days": _int(get("sold_days", "REDFIN_SOLD_DAYS", "90")) or 90,
         "redfin_url": str(get("redfin_url", "REDFIN_URL")).strip(),
+        "beds": _float(get("beds", "REDFIN_BEDS")),
         "property_types": parse_property_types(get("property_types", "REDFIN_PROPERTY_TYPES")),
+        "map": os.path.expanduser(str(get("map", "REDFIN_MAP")).strip()),
     }
     missing = [k for k in ("address", "city", "state", "zip") if not out[k]]
     if missing:
@@ -460,7 +468,11 @@ def comps_value(comps, subject):
     if not top:
         return None
     ppsf = statistics.median(h["ppsf"] for h in top)
-    return round(ppsf * subject["sqft"], -3), round(ppsf), len(top)
+    comp_beds = [h["beds"] for h in top if h.get("beds")]
+    bed_adj = 0
+    if subject.get("beds") and comp_beds:
+        bed_adj = round((subject["beds"] - statistics.median(comp_beds)) * BED_ADJ)
+    return round(ppsf * subject["sqft"] + bed_adj, -3), round(ppsf), len(top), bed_adj
 
 
 def sale_history(h, state):
@@ -820,7 +832,10 @@ def render(cfg, lat, lon, url, url_note, results, today):
     active.sort(key=lambda h: (not h["is_new"], (h.get("change") or 0) >= 0, -(h["price"] or 0)))
     pending.sort(key=lambda h: -(h["price"] or 0))
     sold.sort(key=lambda h: h["sold_date"], reverse=True)
-    comps = closest_comps(sold, home, radius)
+    # Redfin's record can lag the house (e.g. a basement bedroom); the comps use
+    # the configured count, the Redfin Estimate stays Redfin's.
+    subject = {**home, "beds": cfg["beds"]} if home and cfg.get("beds") else home
+    comps = closest_comps(sold, subject, radius)
     starred = {h["id"] for h in comps[:STAR_COUNT]}
     for h in sold:
         h["close"] = h["id"] in starred
@@ -855,15 +870,21 @@ def render(cfg, lat, lon, url, url_note, results, today):
                       f"| {MONO_F} {color} size=11")
         else:
             print(f"     Redfin isn't showing an estimate for this home | {MONO} {DIMMED}")
-        cv = comps_value(comps, home)
+        cv = comps_value(comps, subject)
         if cv:
-            value, ppsf, n = cv
+            value, ppsf, n, bed_adj = cv
             names = ", ".join(h["address"] for h in comps[:n])
+            tip = f"From {names}"
+            if bed_adj:
+                tip += f" · {'+' if bed_adj > 0 else '−'}{fmt_short(abs(bed_adj))} bedroom adjustment"
             print(f"     Comps value  ≈ {fmt_short(value)}  (${ppsf}/sf · {n} closest {'sale' if n == 1 else 'sales'}) "
-                  f"| {MONO_F} {LABEL_COLOR} size=12 tooltip=\"{clean('From ' + names)}\"")
+                  f"| {MONO_F} {LABEL_COLOR} size=12 tooltip=\"{clean(tip)}\"")
         facts = []
-        if home.get("beds") is not None:
-            facts.append(f"{home['beds']:g}bd")
+        if subject.get("beds") is not None:
+            beds = f"{subject['beds']:g}bd"
+            if home.get("beds") is not None and subject["beds"] != home["beds"]:
+                beds += f" (Redfin {home['beds']:g})"
+            facts.append(beds)
         if home.get("baths") is not None:
             facts.append(f"{home['baths']:g}ba")
         if home.get("sqft"):
@@ -878,6 +899,9 @@ def render(cfg, lat, lon, url, url_note, results, today):
         print(f"     {clean(url_note)} | {MONO_F} {DIMMED} size=11")
     if url:
         print(f"     View on Redfin ↗ | href={url} {MONO_F} {ACCENT_BLUE} size=11")
+    if cfg.get("map") and os.path.isfile(cfg["map"]):
+        map_uri = "file://" + urllib.parse.quote(os.path.abspath(cfg["map"]))
+        print(f"     Neighborhood map ↗ | href={map_uri} {MONO_F} {ACCENT_BLUE} size=11")
     print("---")
 
     # ── For sale ──

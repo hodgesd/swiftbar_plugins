@@ -221,6 +221,7 @@ def test_config_env_fallback_and_defaults(tmp_path):
     assert cfg["radius"] == 3.0 and cfg["sold_days"] == 90
     assert cfg["lat"] is None and cfg["redfin_url"] == ""
     assert cfg["property_types"] == [1]
+    assert cfg["map"] == ""
 
 
 def test_config_missing_fields(tmp_path):
@@ -257,6 +258,22 @@ def test_render_badges_and_title(capsys):
     assert out.index(next(line for line in out if "2 Fresh Ct" in line)) < out.index(cut)
     assert any("Sep 30" in line for line in out)
     assert all(line.count("size=") <= 1 for line in out if "|" in line)
+
+
+def test_render_map_link_only_when_file_exists(capsys, tmp_path):
+    results = {k: ([], {"error": None, "fetched": time.time()}) for k in ("active", "pending", "sold")}
+    results["home"] = ({"estimate": 462148}, {"error": None, "fetched": time.time()})
+    map_file = tmp_path / "my map.html"
+    cfg = {"address": "1 A St", "city": "Belleville", "state": "IL", "zip": "62220",
+           "radius": 1.5, "sold_days": 90, "property_types": [1], "map": str(map_file)}
+    hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
+    assert "Neighborhood map" not in capsys.readouterr().out
+    map_file.write_text("<html></html>")
+    hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
+    out = capsys.readouterr().out.splitlines()
+    redfin = next(i for i, line in enumerate(out) if "View on Redfin" in line)
+    assert "Neighborhood map ↗" in out[redfin + 1]
+    assert f"href=file://{str(map_file).replace(' ', '%20')} " in out[redfin + 1]
 
 
 # --- property types ---------------------------------------------------------------------
@@ -328,9 +345,15 @@ def test_closest_comps_prefers_similar_homes():
 
 
 def test_comps_value_uses_median_ppsf():
-    comps = [home(str(i), 1, ppsf=p, dist=0.1) for i, p in enumerate([150, 160, 170])]
-    assert hc.comps_value(comps, SUBJECT) == (448000, 160, 3)
+    comps = [home(str(i), 1, ppsf=p, beds=4.0, dist=0.1) for i, p in enumerate([150, 160, 170])]
+    assert hc.comps_value(comps, SUBJECT) == (448000, 160, 3, 0)
     assert hc.comps_value([], SUBJECT) is None
+
+
+def test_comps_value_adjusts_for_bedrooms():
+    comps = [home(str(i), 1, ppsf=160, beds=4.0, dist=0.1) for i in range(3)]
+    assert hc.comps_value(comps, {**SUBJECT, "beds": 5.0}) == (458000, 160, 3, 10000)
+    assert hc.comps_value(comps, {**SUBJECT, "beds": None}) == (448000, 160, 3, 0)
 
 
 # --- market pace ------------------------------------------------------------------------
