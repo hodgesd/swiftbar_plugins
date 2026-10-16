@@ -5,3 +5,4 @@ faa_creds.py
 creds.py
 .venv
 __pycache__/
+.DS_Store
