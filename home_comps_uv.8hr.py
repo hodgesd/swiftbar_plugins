@@ -14,7 +14,7 @@
 # <swiftbar.hideLastUpdated>false</swiftbar.hideLastUpdated>
 # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
-# <swiftbar.environment>[REDFIN_ADDRESS:, REDFIN_CITY:, REDFIN_STATE:, REDFIN_ZIP:, REDFIN_LAT:, REDFIN_LON:, REDFIN_RADIUS:3, REDFIN_SOLD_DAYS:90, REDFIN_URL:, REDFIN_PROPERTY_TYPES:house, REDFIN_MAP:]</swiftbar.environment>
+# <swiftbar.environment>[REDFIN_ADDRESS:, REDFIN_CITY:, REDFIN_STATE:, REDFIN_ZIP:, REDFIN_LAT:, REDFIN_LON:, REDFIN_RADIUS:3, REDFIN_SOLD_DAYS:90, REDFIN_URL:, REDFIN_PROPERTY_TYPES:house, REDFIN_MAP:, REDFIN_COMP_DAYS:365, REDFIN_SUBDIVISION:, REDFIN_EXCLUDE_SUBDIVISIONS:]</swiftbar.environment>
 
 """
 Neighborhood Real Estate Monitor — SwiftBar Plugin
@@ -48,7 +48,17 @@ Config: ~/.config/swiftbar-plugins/home_comps_uv.json
                                        multi-family, land, other, manufactured, co-op
       "map":       "~/Documents/Maps/area.html"   optional; local neighborhood map,
                                        linked beside "View on Redfin" when the file exists
+      "sqft":      3000,               optional; overrides Redfin's square footage for
+                                       the comps only
+      "comp_days": 365,                optional; sold window for the comps value (default
+                                       365); the Sold list keeps sold_days
+      "subdivision": "Orchards",       optional; sales in this subdivision rank as
+                                       closer comps
+      "exclude_subdivisions": ["Brookhill", "Plum Hill"]   optional; never used as comps
     }
+Subdivision names are matched case-insensitively as substrings of Redfin's
+MLS subdivision field. When Redfin has none (or just the city), the St. Clair
+County, IL parcel layer is asked by coordinates; answers are cached for good.
 REDFIN_* environment variables work as a fallback for every key.
 
 Caches live in ~/.cache/swiftbar-plugins/home_comps_uv/. A failed fetch falls
@@ -57,9 +67,11 @@ first-seen dates and prices per property for the NEW / price-change badges,
 plus a daily history of your Redfin Estimate for the trend line. Sold homes
 that were tracked while listed get sale-to-list and days-to-sell figures.
 
-Comps value = median $/sf of the most similar recent sales (size, beds,
-baths, age, distance) times your square footage, plus BED_ADJ per bedroom
-you have beyond the comps' median. The closest few are starred.
+Comps value = median price of the most similar sales in the last comp_days
+(size, beds, baths, age, distance, favored subdivision; within COMP_SIZE_RANGE
+of your size), each adjusted SIZE_ADJ per sqft toward your size, plus BED_ADJ
+per bedroom you have beyond the comps' median. The comps are listed under the value; the closest
+few that sold within sold_days are starred in the Sold list.
 
 CLI:
   ./home_comps_uv.8hr.py            render the menu
@@ -90,6 +102,7 @@ CONFIG_PATH = os.path.expanduser(f"~/.config/swiftbar-plugins/{PLUGIN_NAME}.json
 CACHE_DIR = os.path.expanduser(f"~/.cache/swiftbar-plugins/{PLUGIN_NAME}")
 STATE_FILE = "listings_state.json"
 LOCATION_FILE = "location.json"
+SUBDIV_FILE = "subdivisions.json"  # property id -> county subdivision, kept for good
 
 LIST_TTL = 2 * 3600        # listings: manual refreshes within 2h reuse the cache
 HOME_TTL = 12 * 3600       # Redfin Estimate moves at most daily
@@ -101,6 +114,9 @@ MAX_ROWS = 15
 ADDR_W = 24
 COMP_COUNT = 5             # sales behind the comps value
 BED_ADJ = 10_000           # comps value adjustment per bedroom vs the comps' median
+COMP_SIZE_RANGE = (0.75, 1.33)  # comps' sqft vs yours; $/sf doesn't carry across sizes
+SIZE_ADJ = 50              # $ per sqft of size difference when adjusting a comp's price
+SUBDIV_BONUS = 0.4         # similarity credit for a sale in the favored subdivision
 STAR_COUNT = 3             # closest sales starred and listed first
 TREND_DAYS = 30            # estimate trend window
 TREND_MIN_DAYS = 7         # show a shorter trend once there's this much history
@@ -113,6 +129,8 @@ DEFAULT_PROPERTY_TYPES = ["house"]
 
 GIS_URL = "https://www.redfin.com/stingray/api/gis"
 CENSUS_URL = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
+PARCEL_URL = ("https://services3.arcgis.com/zlwh2vfgpx3iW3YR/arcgis/rest/services/"
+              "Parcel_for_parcel_viewer/FeatureServer/0/query")  # St. Clair County, IL
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) "
     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15"
@@ -172,6 +190,11 @@ def load_config(path=CONFIG_PATH, env=os.environ):
         "beds": _float(get("beds", "REDFIN_BEDS")),
         "property_types": parse_property_types(get("property_types", "REDFIN_PROPERTY_TYPES")),
         "map": os.path.expanduser(str(get("map", "REDFIN_MAP")).strip()),
+        "sqft": _int(get("sqft", "REDFIN_SQFT")),
+        "comp_days": _int(get("comp_days", "REDFIN_COMP_DAYS", "365")) or 365,
+        "subdivision": str(get("subdivision", "REDFIN_SUBDIVISION")).strip(),
+        "exclude_subdivisions": parse_list(get("exclude_subdivisions",
+                                               "REDFIN_EXCLUDE_SUBDIVISIONS")),
     }
     missing = [k for k in ("address", "city", "state", "zip") if not out[k]]
     if missing:
@@ -187,6 +210,12 @@ def parse_property_types(val):
 
 
 # ─── Small helpers ───────────────────────────────────────────────────────
+
+def parse_list(val):
+    if isinstance(val, str):
+        val = val.split(",")
+    return [str(v).strip() for v in (val or []) if str(v).strip()]
+
 
 def _int(v):
     try:
@@ -290,6 +319,7 @@ def normalize_home(h):
         "year_built": _int(_val(h.get("yearBuilt"))),
         "hoa": _int(_val(h.get("hoa"))),
         "ptype": _int(h.get("uiPropertyType")),
+        "subdiv": (_val(h.get("location")) or "").strip() or None,  # MLS subdivision
     }
 
 
@@ -440,9 +470,15 @@ def estimate_trend(hist, today):
     return change, change / hist[base] * 100, base
 
 
-def similarity(h, subject, radius):
-    """Lower is closer. Size dominates; beds, baths, age and distance refine."""
-    score = abs(math.log(h["sqft"] / subject["sqft"])) * 2
+def subdiv_matches(name, patterns):
+    name = (name or "").lower()
+    return bool(name) and any(p.lower() in name for p in patterns if p)
+
+
+def similarity(h, subject, radius, favor=""):
+    """Lower is closer. Size dominates; beds, baths, age, distance and the
+    favored subdivision refine."""
+    score = abs(math.log(h["sqft"] / subject["sqft"])) * 3
     if subject.get("beds") and h.get("beds"):
         score += abs(h["beds"] - subject["beds"]) * 0.25
     if subject.get("baths") and h.get("baths") is not None:
@@ -450,29 +486,36 @@ def similarity(h, subject, radius):
     if subject.get("year_built") and h.get("year_built"):
         score += min(abs(h["year_built"] - subject["year_built"]), 40) / 40 * 0.5
     score += h.get("dist", 0) / radius * 0.5
+    if favor and subdiv_matches(h.get("subdiv"), [favor]):
+        score -= SUBDIV_BONUS
     return score
 
 
-def closest_comps(sold, subject, radius):
+def closest_comps(sold, subject, radius, favor="", exclude=()):
     """Similar-sized sold homes ranked by similarity; empty without the subject's sqft."""
     if not (subject and subject.get("sqft")):
         return []
-    lo, hi = subject["sqft"] * 0.6, subject["sqft"] * 1.6  # $/sf doesn't carry across sizes
+    lo, hi = (subject["sqft"] * f for f in COMP_SIZE_RANGE)
     usable = [h for h in sold if h.get("ppsf") and h.get("price")
-              and h.get("sqft") and lo <= h["sqft"] <= hi]
-    return sorted(usable, key=lambda h: similarity(h, subject, radius))
+              and h.get("sqft") and lo <= h["sqft"] <= hi
+              and not subdiv_matches(h.get("subdiv"), exclude)]
+    return sorted(usable, key=lambda h: similarity(h, subject, radius, favor))
 
 
 def comps_value(comps, subject):
+    """Median of the comps' prices, each adjusted by SIZE_ADJ per sqft of size
+    difference (bigger houses sell for less per sqft, so scaling by $/sf would
+    undervalue a smaller home), plus BED_ADJ per extra bedroom.
+    Returns (value, implied $/sf, comps used, bedroom adjustment)."""
     top = comps[:COMP_COUNT]
     if not top:
         return None
-    ppsf = statistics.median(h["ppsf"] for h in top)
+    base = statistics.median(h["price"] + (subject["sqft"] - h["sqft"]) * SIZE_ADJ for h in top)
     comp_beds = [h["beds"] for h in top if h.get("beds")]
     bed_adj = 0
     if subject.get("beds") and comp_beds:
         bed_adj = round((subject["beds"] - statistics.median(comp_beds)) * BED_ADJ)
-    return round(ppsf * subject["sqft"] + bed_adj, -3), round(ppsf), len(top), bed_adj
+    return round(base + bed_adj, -3), round(base / subject["sqft"]), len(top), bed_adj
 
 
 def sale_history(h, state):
@@ -560,7 +603,7 @@ def force_stale():
     if not os.path.isdir(CACHE_DIR):
         return
     for name in os.listdir(CACHE_DIR):
-        if name.endswith(".json") and name not in (STATE_FILE, LOCATION_FILE):
+        if name.endswith(".json") and name not in (STATE_FILE, LOCATION_FILE, SUBDIV_FILE):
             os.utime(_cache_path(name), (0, 0))
 
 
@@ -631,6 +674,42 @@ def resolve_location(cfg):
     return lat, lon, url, note
 
 
+def parse_parcel_subdiv(body):
+    feats = json.loads(body).get("features") or []
+    return ((feats[0].get("attributes") or {}).get("SUBDIV") or "").strip() if feats else ""
+
+
+def fetch_parcel_subdiv(lat, lon):
+    """County subdivision of the parcel under a point ("" when none)."""
+    return parse_parcel_subdiv(http_get(PARCEL_URL, {
+        "geometry": f"{lon},{lat}", "geometryType": "esriGeometryPoint", "inSR": 4326,
+        "spatialRel": "esriSpatialRelIntersects", "outFields": "SUBDIV",
+        "returnGeometry": "false", "f": "json"}))
+
+
+def fill_subdivisions(homes, city):
+    """Fill missing or city-only MLS subdivisions from the county parcel layer.
+    Lookups are cached by property id; failures are retried next run."""
+    known = read_json(SUBDIV_FILE, {}) or {}
+    todo = [h for h in homes if (h.get("subdiv") or "").lower() in ("", city.lower())
+            and h.get("lat") is not None]
+    missing = {h["id"]: h for h in todo if h["id"] not in known}
+    if missing:
+        def look(h):
+            try:
+                return h["id"], fetch_parcel_subdiv(h["lat"], h["lon"])
+            except Exception:  # noqa: BLE001 — unknown subdivision is harmless
+                return h["id"], None
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            for pid, sub in pool.map(look, missing.values()):
+                if sub is not None:
+                    known[pid] = sub
+        write_json(SUBDIV_FILE, known)
+    for h in todo:
+        if known.get(h["id"]):
+            h["subdiv"] = known[h["id"]]
+
+
 def gather(cfg, lat, lon, url):
     poly = bbox_poly(lat, lon, cfg["radius"])
     types = cfg["property_types"]
@@ -640,11 +719,19 @@ def gather(cfg, lat, lon, url):
         "sold": ("sold.json", LIST_TTL,
                  lambda: fetch_gis(poly, "sold", cfg["sold_days"], types)),
     }
+    if cfg["comp_days"] > cfg["sold_days"]:
+        jobs["comps"] = ("comps.json", LIST_TTL,
+                         lambda: fetch_gis(poly, "sold", cfg["comp_days"], types))
     if url:
         jobs["home"] = ("home.json", HOME_TTL, lambda: parse_home_page(http_get(url)))
     with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
         futures = {k: pool.submit(cached, *v) for k, v in jobs.items()}
-        return {k: f.result() for k, f in futures.items()}
+        results = {k: f.result() for k, f in futures.items()}
+    if cfg["subdivision"] or cfg["exclude_subdivisions"]:
+        pool_homes = (results.get("comps") or results["sold"])[0] or []
+        near_ids = {h["id"] for h in within_radius(pool_homes, lat, lon, cfg["radius"])}
+        fill_subdivisions([h for h in pool_homes if h["id"] in near_ids], cfg["city"])  # in place
+    return results
 
 
 # ─── Formatting ──────────────────────────────────────────────────────────
@@ -815,6 +902,11 @@ def render(cfg, lat, lon, url, url_note, results, today):
     pending = nearby(pending_raw)
     cutoff = (today - timedelta(days=cfg["sold_days"])).isoformat()
     sold = [h for h in nearby(sold_raw) if h["sold_date"] and h["sold_date"] >= cutoff]
+    comp_days = cfg.get("comp_days", cfg["sold_days"])
+    comp_raw = (results.get("comps") or (None,))[0]
+    comp_cutoff = (today - timedelta(days=max(comp_days, cfg["sold_days"]))).isoformat()
+    comp_pool = [h for h in nearby(comp_raw if comp_raw is not None else sold_raw)
+                 if h["sold_date"] and h["sold_date"] >= comp_cutoff]
 
     state = read_json(STATE_FILE, {}) or {}
     if active_raw is not None or pending_raw is not None:
@@ -833,14 +925,19 @@ def render(cfg, lat, lon, url, url_note, results, today):
     pending.sort(key=lambda h: -(h["price"] or 0))
     sold.sort(key=lambda h: h["sold_date"], reverse=True)
     # Redfin's record can lag the house (e.g. a basement bedroom); the comps use
-    # the configured count, the Redfin Estimate stays Redfin's.
-    subject = {**home, "beds": cfg["beds"]} if home and cfg.get("beds") else home
-    comps = closest_comps(sold, subject, radius)
-    starred = {h["id"] for h in comps[:STAR_COUNT]}
+    # the configured beds / sqft, the Redfin Estimate stays Redfin's.
+    subject = home
+    if home:
+        overrides = {k: cfg[k] for k in ("beds", "sqft") if cfg.get(k)}
+        subject = {**home, **overrides}
+    comps = closest_comps(comp_pool, subject, radius, cfg.get("subdivision", ""),
+                          cfg.get("exclude_subdivisions", ()))
+    rank = {h["id"]: i for i, h in enumerate(comps[:COMP_COUNT])}
+    starred = sorted((h for h in sold if h["id"] in rank), key=lambda h: rank[h["id"]])[:STAR_COUNT]
     for h in sold:
-        h["close"] = h["id"] in starred
+        h["close"] = h in starred
     # Closest comps first (in similarity order), then the rest newest first.
-    sold = comps[:STAR_COUNT] + [h for h in sold if not h["close"]]
+    sold = starred + [h for h in sold if not h["close"]]
     new_count = sum(h["is_new"] for h in active)
     cuts = sum(1 for h in active if (h.get("change") or 0) < 0)
 
@@ -879,6 +976,12 @@ def render(cfg, lat, lon, url, url_note, results, today):
                 tip += f" · {'+' if bed_adj > 0 else '−'}{fmt_short(abs(bed_adj))} bedroom adjustment"
             print(f"     Comps value  ≈ {fmt_short(value)}  (${ppsf}/sf · {n} closest {'sale' if n == 1 else 'sales'}) "
                   f"| {MONO_F} {LABEL_COLOR} size=12 tooltip=\"{clean(tip)}\"")
+            for h in comps[:n]:
+                when = date.fromisoformat(h["sold_date"]).strftime("%b %-d '%y")
+                sub = clamp(h.get("subdiv") or "—", 26)
+                print(f"--{clamp(h['address'], 22):<22} {sub:<26} {when:<10} "
+                      f"{fmt_short(h['price']):>6} {h['sqft']:>5,}sf ${h['ppsf']}/sf "
+                      f"| href={h['url']} {MONO_F} size=11")
         facts = []
         if subject.get("beds") is not None:
             beds = f"{subject['beds']:g}bd"
@@ -887,8 +990,11 @@ def render(cfg, lat, lon, url, url_note, results, today):
             facts.append(beds)
         if home.get("baths") is not None:
             facts.append(f"{home['baths']:g}ba")
-        if home.get("sqft"):
-            facts.append(f"{home['sqft']:,}sf")
+        if subject.get("sqft"):
+            sqft = f"{subject['sqft']:,}sf"
+            if home.get("sqft") and subject["sqft"] != home["sqft"]:
+                sqft += f" (Redfin {home['sqft']:,})"
+            facts.append(sqft)
         if home.get("year_built"):
             facts.append(f"built {home['year_built']}")
         if facts:

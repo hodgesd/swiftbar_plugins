@@ -222,6 +222,18 @@ def test_config_env_fallback_and_defaults(tmp_path):
     assert cfg["lat"] is None and cfg["redfin_url"] == ""
     assert cfg["property_types"] == [1]
     assert cfg["map"] == ""
+    assert cfg["comp_days"] == 365 and cfg["sqft"] is None
+    assert cfg["subdivision"] == "" and cfg["exclude_subdivisions"] == []
+
+
+def test_config_subdivision_lists(tmp_path):
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps({"address": "1 A St", "city": "X", "state": "IL", "zip": "1",
+                             "exclude_subdivisions": ["Brookhill", " Plum Hill "], "sqft": "3000"}))
+    cfg = hc.load_config(str(p), {"REDFIN_SUBDIVISION": "Orchards"})
+    assert cfg["exclude_subdivisions"] == ["Brookhill", "Plum Hill"]
+    assert cfg["subdivision"] == "Orchards" and cfg["sqft"] == 3000
+    assert hc.parse_list("Brookhill, Spyglass,") == ["Brookhill", "Spyglass"]
 
 
 def test_config_missing_fields(tmp_path):
@@ -339,19 +351,90 @@ def test_closest_comps_prefers_similar_homes():
                  dist=0.4),
             home("nosf", 300000, sqft=None, ppsf=None, dist=0.1)]
     comps = hc.closest_comps(sold, SUBJECT, 1.5)
-    assert [h["id"] for h in comps] == ["twin", "big"]  # tiny is outside 60-160% of size
+    assert [h["id"] for h in comps] == ["twin"]  # tiny and big are outside 75-133% of size
     assert hc.closest_comps(sold, {"sqft": None}, 1.5) == []
     assert hc.closest_comps(sold, None, 1.5) == []
 
 
-def test_comps_value_uses_median_ppsf():
-    comps = [home(str(i), 1, ppsf=p, beds=4.0, dist=0.1) for i, p in enumerate([150, 160, 170])]
-    assert hc.comps_value(comps, SUBJECT) == (448000, 160, 3, 0)
+def test_closest_comps_favors_and_excludes_subdivisions():
+    sold = [home("near", 400000, sqft=2800, ppsf=143, beds=4.0, baths=3.0, year_built=1993,
+                 dist=0.3, subdiv="Orchard Lakes Ph 1"),
+            home("orch", 420000, sqft=2600, ppsf=162, beds=4.0, baths=3.0, year_built=1993,
+                 dist=0.6, subdiv="The Orchards 8th Add"),
+            home("spy", 380000, sqft=2800, ppsf=136, beds=4.0, baths=3.0, year_built=1993,
+                 dist=0.1, subdiv="Spyglass Vlg/Orchards"),
+            home("brook", 280000, sqft=2800, ppsf=100, beds=4.0, baths=3.0, year_built=1993,
+                 dist=0.1, subdiv="Brookhill Estates")]
+    plain = hc.closest_comps(sold, SUBJECT, 1.5)
+    assert plain.index(next(h for h in plain if h["id"] == "near")) < \
+        plain.index(next(h for h in plain if h["id"] == "orch"))
+    comps = hc.closest_comps(sold, SUBJECT, 1.5, "Orchards", ["brookhill", "SPYGLASS"])
+    assert [h["id"] for h in comps] == ["orch", "near"]  # Orchard Lakes isn't "Orchards"
+
+
+def test_parse_parcel_subdiv():
+    assert hc.parse_parcel_subdiv('{"features":[{"attributes":{"SUBDIV":" MAPLE HILL "}}]}') \
+        == "MAPLE HILL"
+    assert hc.parse_parcel_subdiv('{"features":[]}') == ""
+
+
+def test_fill_subdivisions_uses_county_for_missing_and_caches(monkeypatch):
+    calls = []
+
+    def fake(lat, lon):
+        calls.append((lat, lon))
+        return "SPYGLASS VILLAGE AT THE ORCHARDS"
+    monkeypatch.setattr(hc, "fetch_parcel_subdiv", fake)
+    homes = [home("a", 1, subdiv=None), home("b", 1, subdiv="Belleville"),
+             home("c", 1, subdiv="Brookhill Estates")]
+    hc.fill_subdivisions(homes, "Belleville")
+    assert [h["subdiv"] for h in homes] == ["SPYGLASS VILLAGE AT THE ORCHARDS"] * 2 + \
+        ["Brookhill Estates"]
+    again = [home("a", 1, subdiv=None)]
+    hc.fill_subdivisions(again, "Belleville")
+    assert len(calls) == 2 and again[0]["subdiv"].startswith("SPYGLASS")
+
+    def boom(lat, lon):
+        raise hc.FetchError("down")
+    monkeypatch.setattr(hc, "fetch_parcel_subdiv", boom)
+    fresh = [home("z", 1, subdiv=None)]
+    hc.fill_subdivisions(fresh, "Belleville")
+    assert fresh[0]["subdiv"] is None and "z" not in hc.read_json(hc.SUBDIV_FILE)
+
+
+def test_render_comps_window_submenu_and_sqft_override(capsys):
+    old = home("old", 430000, sqft=2900, ppsf=148, beds=4.0, baths=3.0, ptype=1, status="Closed",
+               sold_date="2026-03-01", address="1 Old Ct", subdiv="The Orchards")
+    recent = home("new", 300000, sqft=2900, ppsf=103, beds=4.0, baths=3.0, ptype=1,
+                  status="Closed", sold_date="2026-09-01", address="2 New Ct",
+                  subdiv="Brookhill Estates")
+    ok = {"error": None, "fetched": 1}
+    results = {"active": ([], ok), "pending": ([], ok), "sold": ([recent], ok),
+               "comps": ([old, recent], ok), "home": ({**SUBJECT, "estimate": 462000}, ok)}
+    cfg = {"address": "2616 Pro Tour Dr", "city": "Belleville", "state": "IL", "zip": "62220",
+           "radius": 1.5, "sold_days": 90, "property_types": [1], "comp_days": 365,
+           "sqft": 3000, "subdivision": "Orchards", "exclude_subdivisions": ["Brookhill"]}
+    hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
+    out = capsys.readouterr().out.splitlines()
+    assert any("Comps value  ≈ $435K  ($145/sf · 1 closest sale)" in line for line in out)
+    sub = [line for line in out if line.startswith("--1 Old Ct")]
+    assert sub and "The Orchards" in sub[0] and "Mar 1 '26" in sub[0] and "href=https://x/old" in sub[0]
+    assert any("3,000sf (Redfin 2,800)" in line for line in out)
+    assert not any(line.startswith("--2 New Ct") for line in out)
+    assert not any("★" in line for line in out if "2 New Ct" in line)  # excluded, not a comp
+
+
+def test_comps_value_size_adjusts_prices():
+    comps = [home("a", 440000, sqft=2800, beds=4.0), home("b", 425000, sqft=2676, beds=4.0),
+             home("c", 465000, sqft=3330, beds=4.0)]
+    # adjusted: 440,000 · 431,200 · 438,500 -> median 438,500
+    assert hc.comps_value(comps, SUBJECT) == (438000, 157, 3, 0)  # round() is half-to-even
+    assert hc.comps_value(comps, {**SUBJECT, "sqft": 3000}) == (448000, 150, 3, 0)
     assert hc.comps_value([], SUBJECT) is None
 
 
 def test_comps_value_adjusts_for_bedrooms():
-    comps = [home(str(i), 1, ppsf=160, beds=4.0, dist=0.1) for i in range(3)]
+    comps = [home(str(i), 448000, sqft=2800, beds=4.0) for i in range(3)]
     assert hc.comps_value(comps, {**SUBJECT, "beds": 5.0}) == (458000, 160, 3, 10000)
     assert hc.comps_value(comps, {**SUBJECT, "beds": None}) == (448000, 160, 3, 0)
 
@@ -401,5 +484,5 @@ def test_render_filters_types_stars_comps_and_trend(capsys):
     rows = [line for line in out if "href=https://x/" in line and line.startswith("     ")]
     sold_rows = [line for line in rows if "Twin Ct" in line or "Tiny Ct" in line]
     assert "1 Twin Ct" in sold_rows[0] and "★" in sold_rows[0] and "★" not in sold_rows[1]
-    assert any("$156/sf · 1 closest sale)" in line for line in out)
+    assert any("$154/sf · 1 closest sale)" in line for line in out)  # 429,000 + 50sf × $50
     assert hc.read_json(hc.STATE_FILE)["estimates"][TODAY.isoformat()] == 462000
