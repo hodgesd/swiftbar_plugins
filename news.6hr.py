@@ -1,4 +1,5 @@
 #!/Users/hodgesd/PycharmProjects/swiftbar_plugins/.venv/bin/python3.12
+import os
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -75,12 +76,24 @@ def main():
         NewsSource(url='https://daringfireball.net/feeds/articles'),
         NewsSource(url='https://www.apple.com/newsroom/rss-feed.rss', date_tag='updated'),
         NewsSource(url='https://mkennedy.codes/index.xml'),
-        NewsSource(url='https://chiefpilotsforum.com/forums/forum/5-chief-pilots-roundtable.xml/?member=166&key=14b0f53796b65a0515017f89b26c78d8')
     ]
+    source_names = ["Scott News", "Daring Fireball", "Apple Newsroom", "Michael Kennedy"]
+    # The forum feed URL carries a member id + private key, so it lives outside
+    # this public repo: CPRT_FEED_URL, or the file CPRT_FEED_URL_FILE (default:
+    # the sops-nix secret). Skipped when neither is set.
+    cprt_url = os.environ.get("CPRT_FEED_URL", "").strip()
+    if not cprt_url:
+        try:
+            with open(os.environ.get("CPRT_FEED_URL_FILE", "/run/secrets/cprt-feed-url")) as f:
+                cprt_url = f.read().strip()
+        except OSError:
+            pass
+    if cprt_url:
+        sources.append(NewsSource(url=cprt_url))
+        source_names.append("Chief Pilots Forum")
 
     print('􀤦')
     print("---")
-    source_names = ["Scott News", "Daring Fireball", "Apple Newsroom", "Michael Kennedy", "Chief Pilots Forum"]
     for name, source in zip(source_names, sources):
         articles = source.fetch_news()
         print(f"{name} | href={source.url}")

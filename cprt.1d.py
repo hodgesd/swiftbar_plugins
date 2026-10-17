@@ -22,9 +22,24 @@ import requests
 import feedparser
 from html.parser import HTMLParser
 
-# Set your direct URL with authentication key here
-# Replace this with your actual URL that includes username and key
-FEED_URL = "https://chiefpilotsforum.com/forums/forum/5-chief-pilots-roundtable.xml/?member=166&key=14b0f53796b65a0515017f89b26c78d8"
+# The feed URL embeds the forum member id and a private feed key, so it is not
+# kept in this (public) repo. Set CPRT_FEED_URL, or put the URL in the file
+# named by CPRT_FEED_URL_FILE (default: the sops-nix secret on nix-darwin hosts).
+FEED_URL_FILE = os.environ.get("CPRT_FEED_URL_FILE", "/run/secrets/cprt-feed-url")
+
+
+def load_feed_url():
+    url = os.environ.get("CPRT_FEED_URL", "").strip()
+    if url:
+        return url
+    try:
+        with open(FEED_URL_FILE, encoding="utf-8") as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+FEED_URL = load_feed_url()
 
 # Set to True to enable debug mode (saves content to file and prints debug info)
 DEBUG = False
@@ -191,6 +206,14 @@ def parse_rss_feed(content):
 
 
 def main():
+    if not FEED_URL:
+        print("CPF ⚠ | dropdown=false")
+        print("---")
+        print("CPRT feed not configured | color=gray")
+        print(f"Set CPRT_FEED_URL or create {FEED_URL_FILE} | color=gray size=11")
+        print("Open Forum | href=https://chiefpilotsforum.com")
+        return
+
     # Fetch and parse the forum content
     content = fetch_forum_content()
 
