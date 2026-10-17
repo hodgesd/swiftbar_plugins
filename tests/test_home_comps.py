@@ -266,7 +266,7 @@ def test_render_badges_and_title(capsys):
     hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
     out = capsys.readouterr().out.splitlines()
     assert out[0] == "⌂ $462K | font=SF Pro Display size=14"
-    assert any("FOR SALE" in line and "1 new · 1 price cut" in line for line in out)
+    assert any(line.startswith("ON MARKET · 0 pending · 2 active") and "href=" in line for line in out)
     fresh = next(line for line in out if "2 Fresh Ct" in line)
     cut = next(line for line in out if "1 Cut Ct" in line)
     assert "NEW" in fresh and "color=#34C759" in fresh
@@ -287,9 +287,8 @@ def test_render_map_link_only_when_file_exists(capsys, tmp_path):
     map_file.write_text("<html></html>")
     hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
     out = capsys.readouterr().out.splitlines()
-    redfin = next(i for i, line in enumerate(out) if "View on Redfin" in line)
-    assert "Neighborhood map ↗" in out[redfin + 1]
-    assert f"href=file://{str(map_file).replace(' ', '%20')} " in out[redfin + 1]
+    map_line = next(line for line in out if "Neighborhood map ↗" in line)
+    assert f"href=file://{str(map_file).replace(' ', '%20')} " in map_line
 
 
 # --- property types ---------------------------------------------------------------------
@@ -423,7 +422,7 @@ def test_render_comps_window_submenu_and_sqft_override(capsys):
     assert any("Comps value  ≈ $435K  ($145/sf · 1 closest sale)" in line for line in out)
     sub = [line for line in out if line.startswith("--1 Old Ct")]
     assert sub and "The Orchards" in sub[0] and "Mar 1 '26" in sub[0] and "href=https://x/old" in sub[0]
-    assert any("3,000sf (Redfin 2,800)" in line for line in out)
+    assert "3,000sf" in out[2] and "Redfin record: 2,800sf" in out[2]
     assert not any(line.startswith("--2 New Ct") for line in out)
     assert not any("★" in line for line in out if "2 New Ct" in line)  # excluded, not a comp
 
@@ -484,11 +483,12 @@ def test_comps_value_adjusts_for_bedrooms():
 
 # --- market pace ------------------------------------------------------------------------
 
-def test_pace_line():
+def test_market_line():
     active = [home("a", 1, dom=10), home("b", 1, dom=30), home("c", 1, dom=None)]
-    assert hc.pace_line(active, [home("p", 1)]) == \
-        "Median 20d on market  ·  1 of 4 under contract"
-    assert hc.pace_line([], []) is None
+    pending = [home("p", 380000)]
+    assert hc.market_line(active, pending) == \
+        "1/4 under contract · pending median $380K · active median $1 · 20d on market"
+    assert hc.market_line([], []) is None
 
 
 def test_sale_history_and_sold_pace():
@@ -502,7 +502,7 @@ def test_sale_history_and_sold_pace():
             home("untracked", 350000, sold_date="2026-09-21")]
     assert hc.sale_history(sold[0], state) == (400000, 40)
     assert hc.sale_history(sold[2], state) is None
-    assert hc.sold_pace_line(sold, state) == "Sold at 99% of list  ·  ~30d to sell  (2 of 4 tracked)"
+    assert hc.sold_pace_line(sold, state) == "99% of list · ~30d to sell (2/4 tracked)"
     assert hc.sold_pace_line(sold[3:], state) is None
 
 
@@ -522,7 +522,7 @@ def test_render_filters_types_stars_comps_and_trend(capsys):
     hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
     out = capsys.readouterr().out.splitlines()
     assert not any("9 Lot Ct" in line for line in out)
-    assert any(line.startswith("     ▲ $12,000  (+2.7%)  since 9/14") for line in out)
+    assert any("Redfin Estimate" in line and "▲$12K (+2.7%) since 9/14" in line for line in out)
     assert any("Comps value  ≈" in line for line in out)
     rows = [line for line in out if "href=https://x/" in line and line.startswith("     ")]
     sold_rows = [line for line in rows if "Twin Ct" in line or "Tiny Ct" in line]

@@ -97,6 +97,7 @@ Filenames use format: `name.{interval}.py` where interval is:
 - `listings_state.json` also keeps a daily Redfin Estimate history for the trend line
 - Comps value: the 5 most similar sales in the last `comp_days` (default 365) within 75–133% of the home's sqft; each price is grown `appreciation` %/yr since sale and adjusted `SIZE_ADJ` ($50) per sqft toward the home's size, then the median gets `BED_ADJ` per extra bedroom. Scaling median $/sf by sqft was dropped because larger comps sell for less per sqft. It's the menu bar value unless `title` is `"redfin"`, falling back to the Redfin Estimate when no comps qualify
 - Subdivisions come from Redfin's `location` field (MLS subdivision, free text); when it's empty or just the city, the St. Clair County parcel layer is queried by point and cached forever in `subdivisions.json`. `exclude_subdivisions` / `subdivision` match case-insensitive substrings, and exclusion wins (e.g. "Spyglass Vlg/Orchards")
+- Menu layout (v2.2): the home is one title line (click → Redfin), then comps and estimate lines. ON MARKET is one table with pending rows (PEND, teal) above active ones, and SOLD is another. Each table's title line doubles as its column header (Menlo-Bold, padded to line up) and links to Redfin's view-all search. Prices print as `$307K` via `fmt_short`
 - `./home_comps_uv.8hr.py --check` prints per-source counts and exits 1 on failure
 
 **cprt.1d.py**: Authenticated RSS feed parser

@@ -5,7 +5,7 @@
 # ///
 
 # <swiftbar.title>Neighborhood Real Estate Monitor</swiftbar.title>
-# <swiftbar.version>v2.1</swiftbar.version>
+# <swiftbar.version>v2.2</swiftbar.version>
 # <swiftbar.author>Derrick</swiftbar.author>
 # <swiftbar.author.github>hdgs</swiftbar.author.github>
 # <swiftbar.desc>Active, pending and sold homes around your address plus your Redfin Estimate, with NEW and price-drop tracking. Configure via ~/.config/swiftbar-plugins/home_comps_uv.json</swiftbar.desc>
@@ -148,6 +148,8 @@ MONO = f"{MONO_F} size=12"
 # Table rows need a real monospace face; SFMono isn't installed system-wide, so
 # "SFMono-Regular" silently falls back to the proportional system font.
 TABLE = "font=Menlo size=11"
+TABLE_BOLD = "font=Menlo-Bold size=11"
+ROW_INDENT = "     "
 HEADER_FONT = "font=SF Pro Display size=13"
 TITLE_FONT = "font=SF Pro Display size=14"
 DIMMED = "color=#8E8E93"
@@ -155,6 +157,7 @@ ACCENT_GREEN = "color=#34C759"
 ACCENT_RED = "color=#FF3B30"
 ACCENT_BLUE = "color=#007AFF"
 ACCENT_ORANGE = "color=#FF9500"
+ACCENT_TEAL = "color=#30B0C7"
 LABEL_COLOR = "color=#AEAEB2"
 WHITE = "color=#FFFFFF"
 
@@ -548,14 +551,18 @@ def sale_history(h, state):
     return lp, (date.fromisoformat(h["sold_date"]) - date.fromisoformat(first)).days
 
 
-def pace_line(active, pending):
-    doms = [h["dom"] for h in active if h["dom"] is not None]
+def market_line(active, pending):
     bits = []
+    if pending:
+        bits.append(f"{len(pending)}/{len(active) + len(pending)} under contract")
+    for name, homes in (("pending", pending), ("active", active)):
+        prices = [h["price"] for h in homes if h["price"]]
+        if prices:
+            bits.append(f"{name} median {fmt_short(int(statistics.median(prices)))}")
+    doms = [h["dom"] for h in active if h["dom"] is not None]
     if doms:
-        bits.append(f"Median {int(statistics.median(doms))}d on market")
-    if active or pending:
-        bits.append(f"{len(pending)} of {len(active) + len(pending)} under contract")
-    return "  ·  ".join(bits) or None
+        bits.append(f"{int(statistics.median(doms))}d on market")
+    return " · ".join(bits) or None
 
 
 def sold_pace_line(sold, state):
@@ -564,10 +571,10 @@ def sold_pace_line(sold, state):
     if not known:
         return None
     days = [d for _, d in known if d >= 0]
-    s = f"Sold at {statistics.median(r for r, _ in known) * 100:.0f}% of list"
+    s = f"{statistics.median(r for r, _ in known) * 100:.0f}% of list"
     if days:
-        s += f"  ·  ~{int(statistics.median(days))}d to sell"
-    return s + f"  ({len(known)} of {len(sold)} tracked)"
+        s += f" · ~{int(statistics.median(days))}d to sell"
+    return s + f" ({len(known)}/{len(sold)} tracked)"
 
 
 # ─── Cache with stale fallback ───────────────────────────────────────────
@@ -837,20 +844,24 @@ def stats_line(homes):
     ppsf = [h["ppsf"] for h in homes if h["ppsf"]]
     if not prices:
         return None
-    s = (f"Median {fmt_price(int(statistics.median(prices)))}  ·  "
-         f"Range {fmt_short(min(prices))}–{fmt_short(max(prices))}")
+    s = (f"Median {fmt_short(int(statistics.median(prices)))} · "
+         f"{fmt_short(min(prices))}–{fmt_short(max(prices))}")
     if ppsf:
-        s += f"  ·  ${int(statistics.median(ppsf))}/sf"
+        s += f" · ${int(statistics.median(ppsf))}/sf"
     return s
 
 
-def listing_row(h, last_col, kind, prefix="     "):
-    cols = (f"{clamp(h['address'], ADDR_W):<{ADDR_W}} {fmt_price(h['price']):>10} "
-            f"{fmt_bb(h['beds'], h['baths']):>9} {fmt_num(h['sqft']):>6} "
-            f"{fmt_num(h['ppsf'], '$'):>5} {last_col:>6}")
+def listing_row(h, last_col, kind):
+    cols = f"{clamp(h['address'], ADDR_W):<{ADDR_W}} "
+    if kind != "sold":
+        cols += f"{'PEND' if kind == 'pending' else '':<4} "
+    cols += (f"{fmt_short(h['price']):>7} {fmt_bb(h['beds'], h['baths']):>9} "
+             f"{fmt_num(h['sqft']):>6} {fmt_num(h['ppsf'], '$'):>5} {last_col:>6}")
     params = [TABLE, f'tooltip="{tooltip_for(h, kind)}"']
     if h.get("url"):
         params.append(f"href={h['url']}")
+    if kind == "pending":
+        params.append(ACCENT_TEAL)
     if kind == "active":
         note = note_for(h)
         cols += f"  {note}" if note else ""
@@ -860,13 +871,16 @@ def listing_row(h, last_col, kind, prefix="     "):
             params.append(ACCENT_GREEN)
     if kind == "sold" and h.get("close"):
         cols += "  ★"
-    return f"{prefix}{clean(cols)} | {' '.join(params)}"
+    return f"{ROW_INDENT}{clean(cols)} | {' '.join(params)}"
 
 
-def column_header(last_col, prefix="     "):
-    cols = (f"{'ADDRESS':<{ADDR_W}} {'PRICE':>10} {'BD/BA':>9} {'SQFT':>6} "
+def table_title(label, last_col, status, href):
+    """Section title that doubles as the column header: the label fills the
+    address (and status) columns so PRICE … line up with the rows below."""
+    width = len(ROW_INDENT) + ADDR_W + 1 + (5 if status else 0)
+    cols = (f"{clamp(label, width - 1):<{width}}{'PRICE':>7} {'BD/BA':>9} {'SQFT':>6} "
             f"{'$/SF':>5} {last_col:>6}")
-    return f"{prefix}{cols} | {TABLE} {LABEL_COLOR}"
+    return f"{clean(cols)} | {TABLE_BOLD} {WHITE} href={href} tooltip=\"View all on Redfin\""
 
 
 def stale_line(info):
@@ -956,8 +970,6 @@ def render(cfg, lat, lon, url, url_note, results, today):
         h["close"] = h in starred
     # Closest comps first (in similarity order), then the rest newest first.
     sold = starred + [h for h in sold if not h["close"]]
-    new_count = sum(h["is_new"] for h in active)
-    cuts = sum(1 for h in active if (h.get("change") or 0) < 0)
 
     # ── Menu bar title ──
     estimate = (home or {}).get("estimate")
@@ -969,6 +981,11 @@ def render(cfg, lat, lon, url, url_note, results, today):
         title += " ⚠"
     print(f"{title} | {TITLE_FONT}")
     print("---")
+
+    map_link = None
+    if cfg.get("map") and os.path.isfile(cfg["map"]):
+        map_uri = "file://" + urllib.parse.quote(os.path.abspath(cfg["map"]))
+        map_link = f"Neighborhood map ↗ | href={map_uri} {MONO_F} {ACCENT_BLUE} size=11"
 
     def print_comps(primary):
         value, ppsf, n, bed_adj = cv
@@ -987,26 +1004,50 @@ def render(cfg, lat, lon, url, url_note, results, today):
             print(f"--{clamp(h['address'], 22):<22} {sub:<26} {when:<10} "
                   f"{fmt_short(h['price']):>6} {h['sqft']:>5,}sf ${h['ppsf']}/sf "
                   f"| href={h['url']} {MONO_F} size=11")
+        if map_link:
+            print("-----")
+            print(f"--{map_link}")
 
     def print_redfin(primary):
         if not estimate:
             print(f"     Redfin isn't showing an estimate for this home | {MONO} {DIMMED}")
             return
-        per_sf = f"  (${round(estimate / home['sqft'])}/sf)" if home.get("sqft") else ""
-        style = f"{ACCENT_GREEN} size=13" if primary else f"{LABEL_COLOR} size=12"
-        print(f"     Redfin Estimate  {fmt_price(estimate)}{per_sf} | {MONO_F} {style}")
+        line = f"     Redfin Estimate  {fmt_short(estimate)}"
+        if home.get("sqft"):
+            line += f"  (${round(estimate / home['sqft'])}/sf)"
         trend = estimate_trend(state.get("estimates"), today)
         if trend:
             change, pct, since = trend
-            arrow, color = ("▲", ACCENT_GREEN) if change >= 0 else ("▼", ACCENT_RED)
+            arrow = "▲" if change >= 0 else "▼"
             since_txt = date.fromisoformat(since).strftime("%-m/%-d")
-            print(f"     {arrow} {fmt_price(abs(change))}  ({pct:+.1f}%)  since {since_txt} "
-                  f"| {MONO_F} {color} size=11")
+            line += f"  ·  {arrow}{fmt_short(abs(change))} ({pct:+.1f}%) since {since_txt}"
+        style = f"{ACCENT_GREEN} size=13" if primary else f"{LABEL_COLOR} size=12"
+        print(f"{line} | {MONO_F} {style}")
 
     # ── Your home ──
-    print(f"🏠  YOUR HOME | {HEADER_FONT} {WHITE}")
-    print(f"     {clean(cfg['address'])}, {clean(cfg['city'])}, {cfg['state']} {cfg['zip']} "
-          f"| {MONO_F} {DIMMED} size=11")
+    # One line for the house itself; the full address and any disagreement with
+    # Redfin's record live in the tooltip, and clicking opens the Redfin page.
+    facts = [clean(cfg["address"])]
+    tip = [f"{clean(cfg['address'])}, {clean(cfg['city'])}, {cfg['state']} {cfg['zip']}"]
+    if home:
+        if subject.get("beds") is not None or home.get("baths") is not None:
+            facts.append(fmt_bb(subject.get("beds"), home.get("baths")))
+        if subject.get("sqft"):
+            facts.append(f"{subject['sqft']:,}sf")
+        if home.get("year_built"):
+            facts.append(str(home["year_built"]))
+        differs = []
+        if home.get("beds") is not None and subject.get("beds") != home["beds"]:
+            differs.append(f"{home['beds']:g}bd")
+        if home.get("sqft") and subject.get("sqft") != home["sqft"]:
+            differs.append(f"{home['sqft']:,}sf")
+        if differs:
+            tip.append(f"Redfin record: {' · '.join(differs)}")
+    if url:
+        tip.append("Click to open on Redfin")
+    link = f" href={url}" if url else ""
+    print(f"🏠  {'  ·  '.join(facts)} | {HEADER_FONT} {WHITE}{link} "
+          f"tooltip=\"{clean(' · '.join(tip))}\"")
     if home:
         if use_comps:
             print_comps(primary=True)
@@ -1015,80 +1056,46 @@ def render(cfg, lat, lon, url, url_note, results, today):
             print_redfin(primary=True)
             if cv:
                 print_comps(primary=False)
-        facts = []
-        if subject.get("beds") is not None:
-            beds = f"{subject['beds']:g}bd"
-            if home.get("beds") is not None and subject["beds"] != home["beds"]:
-                beds += f" (Redfin {home['beds']:g})"
-            facts.append(beds)
-        if home.get("baths") is not None:
-            facts.append(f"{home['baths']:g}ba")
-        if subject.get("sqft"):
-            sqft = f"{subject['sqft']:,}sf"
-            if home.get("sqft") and subject["sqft"] != home["sqft"]:
-                sqft += f" (Redfin {home['sqft']:,})"
-            facts.append(sqft)
-        if home.get("year_built"):
-            facts.append(f"built {home['year_built']}")
-        if facts:
-            print(f"     {'  ·  '.join(facts)} | {MONO_F} {DIMMED} size=11")
     if stale_line(home_info):
         print(stale_line(home_info))
     if url_note and not home:
         print(f"     {clean(url_note)} | {MONO_F} {DIMMED} size=11")
-    if url:
-        print(f"     View on Redfin ↗ | href={url} {MONO_F} {ACCENT_BLUE} size=11")
-    if cfg.get("map") and os.path.isfile(cfg["map"]):
-        map_uri = "file://" + urllib.parse.quote(os.path.abspath(cfg["map"]))
-        print(f"     Neighborhood map ↗ | href={map_uri} {MONO_F} {ACCENT_BLUE} size=11")
+    if map_link and not (home and cv):
+        print(f"     {map_link}")
     print("---")
 
-    # ── For sale ──
-    counts = [f"{len(active)} active"]
-    if pending:
-        counts.append(f"{len(pending)} pending")
-    if new_count:
-        counts.append(f"{new_count} new")
-    if cuts:
-        counts.append(f"{cuts} price {'cut' if cuts == 1 else 'cuts'}")
-    print(f"🏷️  FOR SALE  ({' · '.join(counts)}) | {HEADER_FONT} {WHITE}")
+    # ── On market: pending first (what buyers took), then active (asking) ──
+    label = f"ON MARKET · {len(pending)} pending · {len(active)} active"
+    print(table_title(label, "DOM", status=True,
+                      href=f"https://www.redfin.com/zipcode/{cfg['zip']}"))
     if stale_line(active_info):
         print(stale_line(active_info))
-    if active:
-        if stats_line(active):
-            print(f"     {stats_line(active)} | {MONO_F} {DIMMED} size=11")
-        if pace_line(active, pending):
-            print(f"     {pace_line(active, pending)} | {MONO_F} {DIMMED} size=11")
-        print(column_header("DOM"))
-        for h in active[:MAX_ROWS]:
-            dom = f"{h['dom']}d" if h["dom"] is not None else "—"
-            print(listing_row(h, dom, "active"))
-        if len(active) > MAX_ROWS:
-            print(f"     … and {len(active) - MAX_ROWS} more | {MONO_F} {DIMMED} size=10")
-    elif active_raw is not None:
-        print(f"     No active listings within {radius:g} mi | {MONO} {DIMMED}")
-    if pending:
-        print(f"     Pending / under contract ({len(pending)}) | {MONO_F} size=11")
-        print(column_header("DOM", prefix="--"))
-        for h in pending[:MAX_ROWS]:
-            dom = f"{h['dom']}d" if h["dom"] is not None else "—"
-            print(listing_row(h, dom, "pending", prefix="--"))
-    if stale_line(pending_info) and not stale_line(active_info):
+    elif stale_line(pending_info):
         print(stale_line(pending_info).replace("⚠", "⚠ Pending:", 1))
-    print(f"     View all on Redfin ↗ | href=https://www.redfin.com/zipcode/{cfg['zip']} "
-          f"{MONO_F} {ACCENT_BLUE} size=11")
+    market = [(h, "pending") for h in pending] + [(h, "active") for h in active]
+    if market:
+        if market_line(active, pending):
+            print(f"     {market_line(active, pending)} | {MONO_F} {DIMMED} size=11")
+        for h, kind in market[:MAX_ROWS]:
+            dom = f"{h['dom']}d" if h["dom"] is not None else "—"
+            print(listing_row(h, dom, kind))
+        if len(market) > MAX_ROWS:
+            print(f"     … and {len(market) - MAX_ROWS} more | {MONO_F} {DIMMED} size=10")
+    elif active_raw is not None:
+        print(f"     No listings within {radius:g} mi | {MONO} {DIMMED}")
     print("---")
 
     # ── Sold ──
-    print(f"✅  SOLD – LAST {cfg['sold_days']} DAYS  ({len(sold)}) | {HEADER_FONT} {WHITE}")
+    sold_link = (f"https://www.redfin.com/zipcode/{cfg['zip']}/filter/"
+                 f"include={sold_filter_token(cfg['sold_days'])}")
+    print(table_title(f"SOLD · LAST {cfg['sold_days']} DAYS · {len(sold)}", "SOLD",
+                      status=False, href=sold_link))
     if stale_line(sold_info):
         print(stale_line(sold_info))
     if sold:
-        if stats_line(sold):
-            print(f"     {stats_line(sold)} | {MONO_F} {DIMMED} size=11")
-        if sold_pace_line(sold, state):
-            print(f"     {sold_pace_line(sold, state)} | {MONO_F} {DIMMED} size=11")
-        print(column_header("SOLD"))
+        summary = " · ".join(filter(None, (stats_line(sold), sold_pace_line(sold, state))))
+        if summary:
+            print(f"     {summary} | {MONO_F} {DIMMED} size=11")
         for h in sold[:MAX_ROWS]:
             d = date.fromisoformat(h["sold_date"]).strftime("%b %-d")
             print(listing_row(h, d, "sold"))
@@ -1096,9 +1103,6 @@ def render(cfg, lat, lon, url, url_note, results, today):
             print(f"     … and {len(sold) - MAX_ROWS} more | {MONO_F} {DIMMED} size=10")
     elif sold_raw is not None:
         print(f"     No sales within {radius:g} mi | {MONO} {DIMMED}")
-    sold_link = (f"https://www.redfin.com/zipcode/{cfg['zip']}/filter/"
-                 f"include={sold_filter_token(cfg['sold_days'])}")
-    print(f"     View all on Redfin ↗ | href={sold_link} {MONO_F} {ACCENT_BLUE} size=11")
     print("---")
 
     # ── Footer ──
