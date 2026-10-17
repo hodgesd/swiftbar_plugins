@@ -224,6 +224,10 @@ def test_config_env_fallback_and_defaults(tmp_path):
     assert cfg["map"] == ""
     assert cfg["comp_days"] == 365 and cfg["sqft"] is None
     assert cfg["subdivision"] == "" and cfg["exclude_subdivisions"] == []
+    assert cfg["appreciation"] == 3.0 and cfg["title"] == "comps"
+    cfg = hc.load_config(str(tmp_path / "none.json"), {**env, "REDFIN_TITLE": "Redfin",
+                                                       "REDFIN_APPRECIATION": "0"})
+    assert cfg["title"] == "redfin" and cfg["appreciation"] == 0.0
 
 
 def test_config_subdivision_lists(tmp_path):
@@ -424,6 +428,36 @@ def test_render_comps_window_submenu_and_sqft_override(capsys):
     assert not any("★" in line for line in out if "2 New Ct" in line)  # excluded, not a comp
 
 
+def _title_render(capsys, **cfg_kw):
+    comp = home("c", 440000, sqft=2800, ppsf=157, beds=4.0, baths=3.0, ptype=1, status="Closed",
+                sold_date=TODAY.isoformat(), address="1 Comp Ct")
+    ok = {"error": None, "fetched": 1}
+    results = {"active": ([], ok), "pending": ([], ok), "sold": ([comp], ok),
+               "home": ({**SUBJECT, "estimate": 462000}, ok)}
+    cfg = {"address": "1 A St", "city": "Belleville", "state": "IL", "zip": "62220",
+           "radius": 1.5, "sold_days": 90, "property_types": [1], **cfg_kw}
+    hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
+    return capsys.readouterr().out.splitlines()
+
+
+def test_title_shows_comps_value_first_by_default(capsys):
+    out = _title_render(capsys)
+    assert out[0].startswith("⌂ $440K")
+    comps_i = next(i for i, line in enumerate(out) if "Comps value" in line)
+    redfin_i = next(i for i, line in enumerate(out) if "Redfin Estimate" in line)
+    assert comps_i < redfin_i and "color=#34C759 size=13" in out[comps_i]
+    assert "size=12" in out[redfin_i]
+
+
+def test_title_redfin_setting_and_fallback(capsys):
+    out = _title_render(capsys, title="redfin")
+    assert out[0].startswith("⌂ $462K")
+    assert out.index(next(line for line in out if "Redfin Estimate" in line)) < \
+        out.index(next(line for line in out if "Comps value" in line))
+    out = _title_render(capsys, sqft=9000)  # no comps within the size range -> Redfin
+    assert out[0].startswith("⌂ $462K") and not any("Comps value" in line for line in out)
+
+
 def test_comps_value_size_adjusts_prices():
     comps = [home("a", 440000, sqft=2800, beds=4.0), home("b", 425000, sqft=2676, beds=4.0),
              home("c", 465000, sqft=3330, beds=4.0)]
@@ -431,6 +465,15 @@ def test_comps_value_size_adjusts_prices():
     assert hc.comps_value(comps, SUBJECT) == (438000, 157, 3, 0)  # round() is half-to-even
     assert hc.comps_value(comps, {**SUBJECT, "sqft": 3000}) == (448000, 150, 3, 0)
     assert hc.comps_value([], SUBJECT) is None
+
+
+def test_comps_value_time_adjusts_for_appreciation():
+    sold = home("a", 400000, sqft=2800, beds=4.0, sold_date=(TODAY - timedelta(days=365)).isoformat())
+    assert hc.time_adjusted(sold, TODAY, 3.5) == pytest.approx(414000)
+    assert hc.time_adjusted({**sold, "sold_date": None}, TODAY, 3.5) == 400000
+    assert hc.time_adjusted(sold, TODAY, 0) == 400000
+    assert hc.comps_value([sold], SUBJECT, TODAY, 3.5) == (414000, 148, 1, 0)
+    assert hc.comps_value([sold], SUBJECT) == (400000, 143, 1, 0)
 
 
 def test_comps_value_adjusts_for_bedrooms():

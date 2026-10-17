@@ -14,7 +14,7 @@
 # <swiftbar.hideLastUpdated>false</swiftbar.hideLastUpdated>
 # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
-# <swiftbar.environment>[REDFIN_ADDRESS:, REDFIN_CITY:, REDFIN_STATE:, REDFIN_ZIP:, REDFIN_LAT:, REDFIN_LON:, REDFIN_RADIUS:3, REDFIN_SOLD_DAYS:90, REDFIN_URL:, REDFIN_PROPERTY_TYPES:house, REDFIN_MAP:, REDFIN_COMP_DAYS:365, REDFIN_SUBDIVISION:, REDFIN_EXCLUDE_SUBDIVISIONS:]</swiftbar.environment>
+# <swiftbar.environment>[REDFIN_ADDRESS:, REDFIN_CITY:, REDFIN_STATE:, REDFIN_ZIP:, REDFIN_LAT:, REDFIN_LON:, REDFIN_RADIUS:3, REDFIN_SOLD_DAYS:90, REDFIN_URL:, REDFIN_PROPERTY_TYPES:house, REDFIN_MAP:, REDFIN_COMP_DAYS:365, REDFIN_SUBDIVISION:, REDFIN_EXCLUDE_SUBDIVISIONS:, REDFIN_APPRECIATION:3, REDFIN_TITLE:comps]</swiftbar.environment>
 
 """
 Neighborhood Real Estate Monitor — SwiftBar Plugin
@@ -55,6 +55,10 @@ Config: ~/.config/swiftbar-plugins/home_comps_uv.json
       "subdivision": "Orchards",       optional; sales in this subdivision rank as
                                        closer comps
       "exclude_subdivisions": ["Brookhill", "Plum Hill"]   optional; never used as comps
+      "appreciation": 3.5,             optional; %/yr comps are adjusted up for time
+                                       since sale (default 3)
+      "title":     "comps",            optional; menu bar value: "comps" (default,
+                                       falls back to Redfin) or "redfin"
     }
 Subdivision names are matched case-insensitively as substrings of Redfin's
 MLS subdivision field. When Redfin has none (or just the city), the St. Clair
@@ -69,8 +73,9 @@ that were tracked while listed get sale-to-list and days-to-sell figures.
 
 Comps value = median price of the most similar sales in the last comp_days
 (size, beds, baths, age, distance, favored subdivision; within COMP_SIZE_RANGE
-of your size), each adjusted SIZE_ADJ per sqft toward your size, plus BED_ADJ
-per bedroom you have beyond the comps' median. The comps are listed under the value; the closest
+of your size), each adjusted SIZE_ADJ per sqft toward your size and
+`appreciation` %/yr for time since sale, plus BED_ADJ per bedroom you have
+beyond the comps' median. The comps are listed under the value; the closest
 few that sold within sold_days are starred in the Sold list.
 
 CLI:
@@ -195,6 +200,9 @@ def load_config(path=CONFIG_PATH, env=os.environ):
         "subdivision": str(get("subdivision", "REDFIN_SUBDIVISION")).strip(),
         "exclude_subdivisions": parse_list(get("exclude_subdivisions",
                                                "REDFIN_EXCLUDE_SUBDIVISIONS")),
+        "appreciation": _float(get("appreciation", "REDFIN_APPRECIATION", "3")) or 0.0,
+        "title": "redfin" if str(get("title", "REDFIN_TITLE")).strip().lower() == "redfin"
+                 else "comps",
     }
     missing = [k for k in ("address", "city", "state", "zip") if not out[k]]
     if missing:
@@ -502,15 +510,25 @@ def closest_comps(sold, subject, radius, favor="", exclude=()):
     return sorted(usable, key=lambda h: similarity(h, subject, radius, favor))
 
 
-def comps_value(comps, subject):
-    """Median of the comps' prices, each adjusted by SIZE_ADJ per sqft of size
-    difference (bigger houses sell for less per sqft, so scaling by $/sf would
-    undervalue a smaller home), plus BED_ADJ per extra bedroom.
+def time_adjusted(h, today, rate):
+    """Sale price grown at `rate` %/yr (simple) from the sale date to today."""
+    if not (rate and today and h.get("sold_date")):
+        return h["price"]
+    days = max((today - date.fromisoformat(h["sold_date"])).days, 0)
+    return h["price"] * (1 + rate / 100 * days / 365)
+
+
+def comps_value(comps, subject, today=None, rate=0.0):
+    """Median of the comps' prices, each grown `rate` %/yr since its sale and
+    adjusted by SIZE_ADJ per sqft of size difference (bigger houses sell for
+    less per sqft, so scaling by $/sf would undervalue a smaller home), plus
+    BED_ADJ per extra bedroom.
     Returns (value, implied $/sf, comps used, bedroom adjustment)."""
     top = comps[:COMP_COUNT]
     if not top:
         return None
-    base = statistics.median(h["price"] + (subject["sqft"] - h["sqft"]) * SIZE_ADJ for h in top)
+    base = statistics.median(time_adjusted(h, today, rate) + (subject["sqft"] - h["sqft"]) * SIZE_ADJ
+                             for h in top)
     comp_beds = [h["beds"] for h in top if h.get("beds")]
     bed_adj = 0
     if subject.get("beds") and comp_beds:
@@ -943,45 +961,60 @@ def render(cfg, lat, lon, url, url_note, results, today):
 
     # ── Menu bar title ──
     estimate = (home or {}).get("estimate")
-    title = f"⌂ {fmt_short(estimate)}" if estimate else f"⌂ {len(active)} for sale"
+    cv = comps_value(comps, subject, today, cfg.get("appreciation", 0.0)) if home else None
+    use_comps = bool(cv) and cfg.get("title", "comps") == "comps"
+    headline = cv[0] if use_comps else estimate
+    title = f"⌂ {fmt_short(headline)}" if headline else f"⌂ {len(active)} for sale"
     if any(r[0] is None for r in (results["active"], results["sold"])):
         title += " ⚠"
     print(f"{title} | {TITLE_FONT}")
     print("---")
+
+    def print_comps(primary):
+        value, ppsf, n, bed_adj = cv
+        names = ", ".join(h["address"] for h in comps[:n])
+        tip = f"From {names}"
+        if cfg.get("appreciation"):
+            tip += f" · +{cfg['appreciation']:g}%/yr since each sale"
+        if bed_adj:
+            tip += f" · {'+' if bed_adj > 0 else '−'}{fmt_short(abs(bed_adj))} bedroom adjustment"
+        style = f"{ACCENT_GREEN} size=13" if primary else f"{LABEL_COLOR} size=12"
+        print(f"     Comps value  ≈ {fmt_short(value)}  (${ppsf}/sf · {n} closest {'sale' if n == 1 else 'sales'}) "
+              f"| {MONO_F} {style} tooltip=\"{clean(tip)}\"")
+        for h in comps[:n]:
+            when = date.fromisoformat(h["sold_date"]).strftime("%b %-d '%y")
+            sub = clamp(h.get("subdiv") or "—", 26)
+            print(f"--{clamp(h['address'], 22):<22} {sub:<26} {when:<10} "
+                  f"{fmt_short(h['price']):>6} {h['sqft']:>5,}sf ${h['ppsf']}/sf "
+                  f"| href={h['url']} {MONO_F} size=11")
+
+    def print_redfin(primary):
+        if not estimate:
+            print(f"     Redfin isn't showing an estimate for this home | {MONO} {DIMMED}")
+            return
+        per_sf = f"  (${round(estimate / home['sqft'])}/sf)" if home.get("sqft") else ""
+        style = f"{ACCENT_GREEN} size=13" if primary else f"{LABEL_COLOR} size=12"
+        print(f"     Redfin Estimate  {fmt_price(estimate)}{per_sf} | {MONO_F} {style}")
+        trend = estimate_trend(state.get("estimates"), today)
+        if trend:
+            change, pct, since = trend
+            arrow, color = ("▲", ACCENT_GREEN) if change >= 0 else ("▼", ACCENT_RED)
+            since_txt = date.fromisoformat(since).strftime("%-m/%-d")
+            print(f"     {arrow} {fmt_price(abs(change))}  ({pct:+.1f}%)  since {since_txt} "
+                  f"| {MONO_F} {color} size=11")
 
     # ── Your home ──
     print(f"🏠  YOUR HOME | {HEADER_FONT} {WHITE}")
     print(f"     {clean(cfg['address'])}, {clean(cfg['city'])}, {cfg['state']} {cfg['zip']} "
           f"| {MONO_F} {DIMMED} size=11")
     if home:
-        if estimate:
-            per_sf = f"  (${round(estimate / home['sqft'])}/sf)" if home.get("sqft") else ""
-            print(f"     Redfin Estimate  {fmt_price(estimate)}{per_sf} "
-                  f"| {MONO_F} {ACCENT_GREEN} size=13")
-            trend = estimate_trend(state.get("estimates"), today)
-            if trend:
-                change, pct, since = trend
-                arrow, color = ("▲", ACCENT_GREEN) if change >= 0 else ("▼", ACCENT_RED)
-                since_txt = date.fromisoformat(since).strftime("%-m/%-d")
-                print(f"     {arrow} {fmt_price(abs(change))}  ({pct:+.1f}%)  since {since_txt} "
-                      f"| {MONO_F} {color} size=11")
+        if use_comps:
+            print_comps(primary=True)
+            print_redfin(primary=False)
         else:
-            print(f"     Redfin isn't showing an estimate for this home | {MONO} {DIMMED}")
-        cv = comps_value(comps, subject)
-        if cv:
-            value, ppsf, n, bed_adj = cv
-            names = ", ".join(h["address"] for h in comps[:n])
-            tip = f"From {names}"
-            if bed_adj:
-                tip += f" · {'+' if bed_adj > 0 else '−'}{fmt_short(abs(bed_adj))} bedroom adjustment"
-            print(f"     Comps value  ≈ {fmt_short(value)}  (${ppsf}/sf · {n} closest {'sale' if n == 1 else 'sales'}) "
-                  f"| {MONO_F} {LABEL_COLOR} size=12 tooltip=\"{clean(tip)}\"")
-            for h in comps[:n]:
-                when = date.fromisoformat(h["sold_date"]).strftime("%b %-d '%y")
-                sub = clamp(h.get("subdiv") or "—", 26)
-                print(f"--{clamp(h['address'], 22):<22} {sub:<26} {when:<10} "
-                      f"{fmt_short(h['price']):>6} {h['sqft']:>5,}sf ${h['ppsf']}/sf "
-                      f"| href={h['url']} {MONO_F} size=11")
+            print_redfin(primary=True)
+            if cv:
+                print_comps(primary=False)
         facts = []
         if subject.get("beds") is not None:
             beds = f"{subject['beds']:g}bd"
