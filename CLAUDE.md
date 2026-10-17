@@ -94,7 +94,9 @@ Filenames use format: `name.{interval}.py` where interval is:
 - Home lat/lon come from the US Census geocoder and the home URL from a tiny-box sold-history search, both cached in `location.json`
 - `listings_state.json` tracks first-seen dates and prices for the NEW and price-change badges; failed fetches fall back to the last good cache
 - Results carry `uiPropertyType` (same codes as the `uipt` filter: 1 house, 2 condo, 3 townhouse, 5 land); `property_types` in config defaults to houses. Sold results have no list price or DOM, so sale-to-list / days-to-sell come from `listings_state.json` and fill in over time
-- `listings_state.json` also keeps a daily Redfin Estimate history for the trend line; the comps value uses the 5 most similar sales within 60–160% of the home's sqft
+- `listings_state.json` also keeps a daily Redfin Estimate history for the trend line
+- Comps value: the 5 most similar sales in the last `comp_days` (default 365) within 75–133% of the home's sqft; each price is grown `appreciation` %/yr since sale and adjusted `SIZE_ADJ` ($50) per sqft toward the home's size, then the median gets `BED_ADJ` per extra bedroom. Scaling median $/sf by sqft was dropped because larger comps sell for less per sqft. It's the menu bar value unless `title` is `"redfin"`, falling back to the Redfin Estimate when no comps qualify
+- Subdivisions come from Redfin's `location` field (MLS subdivision, free text); when it's empty or just the city, the St. Clair County parcel layer is queried by point and cached forever in `subdivisions.json`. `exclude_subdivisions` / `subdivision` match case-insensitive substrings, and exclusion wins (e.g. "Spyglass Vlg/Orchards")
 - `./home_comps_uv.8hr.py --check` prints per-source counts and exits 1 on failure
 
 **cprt.1d.py**: Authenticated RSS feed parser
