@@ -107,6 +107,7 @@ def test_tooltip_and_title_are_swiftbar_safe():
 
 def test_failed_posted_feed_falls_back_to_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(cprt, "CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(cprt, "MIN_FETCH_INTERVAL", 0)
     monkeypatch.setattr(cprt.time, "sleep", lambda s: None)
     pages = {"latest": LATEST, "posted": POSTED}
     monkeypatch.setattr(cprt, "feed_url", lambda name: name)
@@ -124,6 +125,41 @@ def test_failed_posted_feed_falls_back_to_cache(monkeypatch, tmp_path):
     assert error == "posted: HTTP Error 429"
     assert len(feeds["posted"]) == 2  # cached pair, not "everything owed"
     assert any("Stale" in line for line in cprt.render(feeds, error, fetched).splitlines())
+
+
+def test_runs_within_min_interval_replay_cache(monkeypatch, tmp_path):
+    monkeypatch.setattr(cprt, "CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(cprt.time, "sleep", lambda s: None)
+    monkeypatch.setattr(cprt, "feed_url", lambda name: name)
+    calls = []
+    pages = {"latest": LATEST, "posted": POSTED}
+
+    def fetch(url):
+        calls.append(url)
+        return pages[url]
+
+    monkeypatch.setattr(cprt, "fetch", fetch)
+    first = cprt.load()
+    assert calls == ["latest", "posted"]
+    second = cprt.load()  # e.g. a wake or Refresh click a moment later
+    assert calls == ["latest", "posted"]
+    assert second[0] == first[0] and second[1] is None
+
+
+def test_failed_attempt_also_waits_out_the_interval(monkeypatch, tmp_path):
+    monkeypatch.setattr(cprt, "CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(cprt, "feed_url", lambda name: name)
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        raise OSError("HTTP Error 429")
+
+    monkeypatch.setattr(cprt, "fetch", fetch)
+    feeds, error, _ = cprt.load()
+    assert feeds is None and error == "latest: HTTP Error 429"
+    feeds, error, _ = cprt.load()  # no retry hammering after a 429
+    assert calls == ["latest"] and error == "latest: HTTP Error 429"
 
 
 def test_no_cache_and_no_config_renders_error(monkeypatch, tmp_path):

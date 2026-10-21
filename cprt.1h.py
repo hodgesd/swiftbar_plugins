@@ -41,6 +41,9 @@ The URLs hold a private key, so they live outside this public repo:
 
 The last good result is cached in ~/.cache/swiftbar-plugins/cprt/ and shown,
 marked stale, when a fetch fails (Cloudflare rate-limits bursts with 429).
+Runs within 5 minutes of the last fetch attempt (wake, Refresh clicks) replay
+the cache instead of hitting the forum, so it's two requests per run, at most
+two per 5 minutes, and normally two per hour.
 
   ./cprt.1h.py --check   prints per-feed counts, exits 1 on any failure
 """
@@ -67,6 +70,8 @@ USER_AGENT = (
 )
 TITLE_LEN = 55
 TOOLTIP_LEN = 300
+ATTEMPT_FILE = "last_attempt.json"
+MIN_FETCH_INTERVAL = 300  # seconds between fetches, however often SwiftBar runs us
 
 FEEDS = {
     "latest": ("CPRT_FEED_URL", "/run/secrets/cprt-feed-url"),
@@ -195,10 +200,34 @@ def write_cache(feeds):
     os.replace(path + ".tmp", path)
 
 
+def read_attempt():
+    try:
+        with open(os.path.join(CACHE_DIR, ATTEMPT_FILE), encoding="utf-8") as f:
+            data = json.load(f)
+        return float(data["at"]), data.get("error")
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0.0, None
+
+
+def write_attempt(error):
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(os.path.join(CACHE_DIR, ATTEMPT_FILE), "w", encoding="utf-8") as f:
+        json.dump({"at": time.time(), "error": error}, f)
+
+
 def load():
     """Return (feeds, error, fetched_ts). Both feeds must succeed together;
     otherwise fall back to the last good pair so a failed "posted" fetch
-    never makes every topic look unanswered."""
+    never makes every topic look unanswered.
+
+    SwiftBar also reruns plugins on wake and on Refresh, so fetches (good or
+    failed) are at least MIN_FETCH_INTERVAL apart; in between, the last
+    result is replayed from cache."""
+    attempted, last_error = read_attempt()
+    if time.time() - attempted < MIN_FETCH_INTERVAL:
+        cached, fetched = read_cache()
+        if cached is not None or last_error:
+            return cached, last_error, fetched
     stage = "latest"
     try:
         feeds = {}
@@ -209,10 +238,13 @@ def load():
         if not feeds["latest"]:
             raise ValueError("latest-topics feed is empty")
         write_cache(feeds)
+        write_attempt(None)
         return feeds, None, time.time()
     except Exception as e:  # noqa: BLE001 — any failure degrades to cache
+        error = f"{stage}: {e or e.__class__.__name__}"
+        write_attempt(error)
         cached, fetched = read_cache()
-        return cached, f"{stage}: {e or e.__class__.__name__}", fetched
+        return cached, error, fetched
 
 
 # ─── Rendering ───────────────────────────────────────────────────────────
