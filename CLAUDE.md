@@ -100,10 +100,11 @@ Filenames use format: `name.{interval}.py` where interval is:
 - Menu layout (v2.2): the home is one title line (click → Redfin), then comps and estimate lines. ON MARKET is one table with pending rows (PEND, teal) above active ones, and SOLD is another. Each table's title line doubles as its column header (Menlo-Bold, padded to line up) and links to Redfin's view-all search. Prices print as `$307K` via `fmt_short`
 - `./home_comps_uv.8hr.py --check` prints per-source counts and exits 1 on failure
 
-**cprt.1d.py**: Authenticated RSS feed parser
-- Demonstrates handling private/authenticated feeds
-- Custom HTML stripping for content display
-- Debug mode for troubleshooting feed issues
+**cprt.1h.py**: Chief Pilots Roundtable topics you haven't posted in yet (stdlib only, read-only — never log in or post)
+- Invision Community RSS has no author field, so it diffs two member-keyed feeds: the forum's Latest Topics RSS minus an Activity Stream RSS (Topics, Ownership "Content I have posted in", Show me "Content items only"). Both sort by last activity, so the diff is exact within the latest 25 topics
+- Feed URLs carry a private key: `CPRT_FEED_URL` / `CPRT_POSTED_FEED_URL`, or the sops-nix files `/run/secrets/cprt-feed-url` and `/run/secrets/cprt-posted-feed-url`
+- HTML pages are login-gated behind a Cloudflare challenge and the host 429s request bursts; keep it to the two feed requests per run. A failed fetch shows the last good pair from `~/.cache/swiftbar-plugins/cprt/`, marked stale
+- `./cprt.1h.py --check` prints per-feed counts and exits 1 on failure; tests in `tests/test_cprt.py`
 
 ## Configuration Management
 
@@ -123,7 +124,7 @@ Note: The project is transitioning from `requirements.in/txt` to `pyproject.toml
 
 ## Testing Plugins
 
-**Run the parser tests** (bball and home_comps):
+**Run the parser tests** (bball, home_comps, deals, cprt):
 ```bash
 uv run --with pytest --with aiohttp --with beautifulsoup4 --with truststore pytest tests/
 ```
