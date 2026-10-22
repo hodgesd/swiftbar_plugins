@@ -5,7 +5,7 @@
 # ///
 
 # <swiftbar.title>Neighborhood Real Estate Monitor</swiftbar.title>
-# <swiftbar.version>v2.2</swiftbar.version>
+# <swiftbar.version>v2.3</swiftbar.version>
 # <swiftbar.author>Derrick</swiftbar.author>
 # <swiftbar.author.github>hdgs</swiftbar.author.github>
 # <swiftbar.desc>Active, pending and sold homes around your address plus your Redfin Estimate, with NEW and price-drop tracking. Configure via ~/.config/swiftbar-plugins/home_comps_uv.json</swiftbar.desc>
@@ -26,9 +26,11 @@ Data sources (all public, no key):
       pending = status 130 (active under contract + pending)
       sold    = status 9 + sold_within_days
     `mpt=99` is required or Redfin ignores the polygon.
-  * Your home's Redfin page, for the Redfin Estimate (avmInfo.predictedValue).
-    The page URL is auto-discovered from the map search; set `redfin_url` to
-    override. Redfin's autocomplete / initialInfo APIs now return 403.
+  * Redfin's AVM JSON (stingray/api/home/details/avm) for the Redfin Estimate,
+    keyed by the property id in your home's page URL. The URL (and year built)
+    is auto-discovered from the map search; set `redfin_url` to override. The
+    HTML home page sits behind an AWS WAF challenge, and the autocomplete /
+    initialInfo APIs return 403. Redfin requests are spaced REDFIN_GAP apart.
   * US Census geocoder, only when lat/lon are not configured.
 
 Config: ~/.config/swiftbar-plugins/home_comps_uv.json
@@ -92,6 +94,7 @@ import os
 import re
 import statistics
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -112,11 +115,13 @@ SUBDIV_FILE = "subdivisions.json"  # property id -> county subdivision, kept for
 LIST_TTL = 2 * 3600        # listings: manual refreshes within 2h reuse the cache
 HOME_TTL = 12 * 3600       # Redfin Estimate moves at most daily
 URL_RETRY_SEC = 24 * 3600  # retry home-URL discovery at most daily
+REDFIN_GAP = 1.5           # seconds between Redfin requests; never burst them
 NEW_DAYS = 7               # NEW badge: first listed within this many days
 CHANGE_DAYS = 30           # show a price change made within this many days
 STATE_KEEP_DAYS = 120      # forget properties not seen for this long
 MAX_ROWS = 15
-ADDR_W = 24
+ADDR_W = 20               # addresses print without the street type
+SUBDIV_W = 18             # comps submenu subdivision column (abbreviated names)
 COMP_COUNT = 5             # sales behind the comps value
 BED_ADJ = 10_000           # comps value adjustment per bedroom vs the comps' median
 COMP_SIZE_RANGE = (0.75, 1.33)  # comps' sqft vs yours; $/sf doesn't carry across sizes
@@ -133,6 +138,7 @@ PROPERTY_TYPES = {"house": 1, "condo": 2, "townhouse": 3, "multi-family": 4, "la
 DEFAULT_PROPERTY_TYPES = ["house"]
 
 GIS_URL = "https://www.redfin.com/stingray/api/gis"
+AVM_URL = "https://www.redfin.com/stingray/api/home/details/avm"
 CENSUS_URL = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
 PARCEL_URL = ("https://services3.arcgis.com/zlwh2vfgpx3iW3YR/arcgis/rest/services/"
               "Parcel_for_parcel_viewer/FeatureServer/0/query")  # St. Clair County, IL
@@ -152,14 +158,16 @@ TABLE_BOLD = "font=Menlo-Bold size=11"
 ROW_INDENT = "     "
 HEADER_FONT = "font=SF Pro Display size=13"
 TITLE_FONT = "font=SF Pro Display size=14"
-DIMMED = "color=#8E8E93"
-ACCENT_GREEN = "color=#34C759"
-ACCENT_RED = "color=#FF3B30"
-ACCENT_BLUE = "color=#007AFF"
-ACCENT_ORANGE = "color=#FF9500"
-ACCENT_TEAL = "color=#30B0C7"
-LABEL_COLOR = "color=#AEAEB2"
-WHITE = "color=#FFFFFF"
+# SwiftBar takes color=<light mode>,<dark mode>. The light-mode halves are
+# Apple's darker accessible variants, readable on the pale menu background.
+DIMMED = "color=#6E6E73,#8E8E93"
+ACCENT_GREEN = "color=#1F7A35,#34C759"
+ACCENT_RED = "color=#C4000F,#FF3B30"
+ACCENT_BLUE = "color=#0040DD,#0A84FF"
+ACCENT_ORANGE = "color=#B33000,#FF9500"
+ACCENT_TEAL = "color=#00707F,#30B0C7"
+LABEL_COLOR = "color=#3A3A3C,#AEAEB2"
+WHITE = "color=#000000,#FFFFFF"
 
 
 # ─── Config ──────────────────────────────────────────────────────────────
@@ -280,7 +288,24 @@ class FetchError(Exception):
     pass
 
 
+_redfin_lock = threading.Lock()
+_redfin_last = 0.0
+
+
+def _pace(url):
+    """Space Redfin requests REDFIN_GAP apart, even from parallel jobs."""
+    global _redfin_last
+    if urllib.parse.urlsplit(url).hostname != "www.redfin.com":
+        return
+    with _redfin_lock:
+        wait = _redfin_last + REDFIN_GAP - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _redfin_last = time.monotonic()
+
+
 def http_get(url, params=None, timeout=25):
+    _pace(url)
     if params:
         url = url + "?" + urllib.parse.urlencode(params, safe=",", quote_via=urllib.parse.quote)
     req = urllib.request.Request(url, headers={
@@ -344,27 +369,30 @@ def parse_gis(body):
     return [normalize_home(h) for h in (data.get("payload") or {}).get("homes") or []]
 
 
-def parse_home_page(html):
-    """Pull the Redfin Estimate and facts for the subject property from its page."""
-    text = html.replace('\\"', '"')
-    i = text.find('"addressSectionInfo"')
-    if i < 0:
-        raise FetchError("home page has no property data (bot challenge?)")
-    seg = text[i:i + 10000]
-
-    def grab(pattern, src=seg):
-        m = re.search(pattern, src)
-        return m.group(1) if m else None
-
-    est = grab(r'"avmInfo":\{[^{}]*?"predictedValue":([0-9.]+)', text)
+def parse_avm(body):
+    """Redfin Estimate and facts for the subject property from the AVM JSON."""
+    try:
+        data = json.loads(strip_xssi(body))
+    except json.JSONDecodeError:
+        raise FetchError("Redfin returned non-JSON (bot challenge?)") from None
+    if data.get("resultCode") != 0:
+        raise FetchError(f"Redfin: {data.get('errorMessage') or 'error'}")
+    p = data.get("payload") or {}
+    est = _float(p.get("predictedValue"))
+    if est is None:
+        raise FetchError("Redfin has no estimate for this home")
     return {
-        "estimate": _int(round(float(est))) if est else None,
-        "beds": _float(grab(r'"beds":([0-9.]+)')),
-        "baths": _float(grab(r'"baths":([0-9.]+)')),
-        "sqft": _int(grab(r'"sqFt":\{[^{}]*?"value":([0-9]+)')),
-        "year_built": _int(grab(r'"yearBuilt":([0-9]+)')),
-        "property_id": grab(r'"propertyId":([0-9]+)'),
+        "estimate": _int(round(est)),
+        "beds": _float(p.get("numBeds")),
+        "baths": _float(p.get("numBaths")),
+        "sqft": _int(_val(p.get("sqFt"))),
+        "property_id": str(p["propertyId"]) if p.get("propertyId") else None,
     }
+
+
+def property_id(url):
+    m = re.search(r"/home/(\d+)", url or "")
+    return m.group(1) if m else None
 
 
 STREET_SUFFIXES = {"st", "street", "dr", "drive", "rd", "road", "ave", "avenue", "ln", "lane",
@@ -661,17 +689,25 @@ def geocode(cfg):
                                               "format": "json"}))
 
 
-def discover_home_url(lat, lon, address):
+def find_home(lat, lon, address):
     """Off-market homes only appear in long sold-history searches, so search a
     tiny box around the house over 100 years of sales and match the address."""
     homes = fetch_gis(bbox_poly(lat, lon, 0.15), "sold", sold_days=36500)
-    hit = match_home(homes, address)
-    return hit["url"] if hit else None
+    return match_home(homes, address)
+
+
+def fetch_home(url, year_built):
+    pid = property_id(url)
+    if not pid:
+        raise FetchError("no property id in redfin_url")
+    return {**parse_avm(http_get(AVM_URL, {"propertyId": pid, "accessLevel": 1})),
+            "year_built": year_built}
 
 
 def resolve_location(cfg):
-    """Return (lat, lon, redfin_url, note). Geocoding and URL discovery are
-    cached in location.json, keyed by the address."""
+    """Return (lat, lon, redfin_url, year_built, note). Geocoding and the home
+    lookup (URL + year built, which the AVM lacks) are cached in location.json,
+    keyed by the address."""
     key = f"{cfg['address']}, {cfg['city']}, {cfg['state']} {cfg['zip']}".lower()
     loc = read_json(LOCATION_FILE, {}) or {}
     if loc.get("key") != key:
@@ -686,17 +722,22 @@ def resolve_location(cfg):
 
     note = None
     url = cfg["redfin_url"] or loc.get("redfin_url")
-    if not url and time.time() - loc.get("url_tried", 0) > URL_RETRY_SEC:
+    if ((not url or "year_built" not in loc)
+            and time.time() - loc.get("url_tried", 0) > URL_RETRY_SEC):
         loc["url_tried"] = time.time()
         try:
-            url = discover_home_url(lat, lon, cfg["address"])
-            loc["redfin_url"] = url
+            hit = find_home(lat, lon, cfg["address"])
+            if hit:
+                loc["redfin_url"] = hit["url"]
+                url = url or hit["url"]
+            loc["year_built"] = hit.get("year_built") if hit else None
         except FetchError as e:
-            note = f"Home lookup failed: {e}"
+            if not url:
+                note = f"Home lookup failed: {e}"
         write_json(LOCATION_FILE, loc)
     if not url and not note:
         note = 'Home not found on Redfin. Set "redfin_url" in config.'
-    return lat, lon, url, note
+    return lat, lon, url, loc.get("year_built"), note
 
 
 def parse_parcel_subdiv(body):
@@ -735,7 +776,7 @@ def fill_subdivisions(homes, city):
             h["subdiv"] = known[h["id"]]
 
 
-def gather(cfg, lat, lon, url):
+def gather(cfg, lat, lon, url, year_built=None):
     poly = bbox_poly(lat, lon, cfg["radius"])
     types = cfg["property_types"]
     jobs = {
@@ -748,7 +789,7 @@ def gather(cfg, lat, lon, url):
         jobs["comps"] = ("comps.json", LIST_TTL,
                          lambda: fetch_gis(poly, "sold", cfg["comp_days"], types))
     if url:
-        jobs["home"] = ("home.json", HOME_TTL, lambda: parse_home_page(http_get(url)))
+        jobs["home"] = ("home.json", HOME_TTL, lambda: fetch_home(url, year_built))
     with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
         futures = {k: pool.submit(cached, *v) for k, v in jobs.items()}
         results = {k: f.result() for k, f in futures.items()}
@@ -777,6 +818,13 @@ def fmt_short(v):
     return f"${v:,}"
 
 
+def fmt_bb_col(beds, baths):
+    """Compact table cell: 5/2.5 (the column header says BD/BA)."""
+    if not beds and baths is None:  # 0 beds = land / commercial
+        return "—"
+    return f"{f'{beds:g}' if beds else '—'}/{f'{baths:g}' if baths is not None else '—'}"
+
+
 def fmt_bb(beds, baths):
     parts = []
     if beds:  # 0 beds = land / commercial
@@ -791,12 +839,48 @@ def fmt_num(v, prefix=""):
 
 
 def fmt_age(ts):
-    return datetime.fromtimestamp(ts).strftime("%-m/%-d %-I:%M %p") if ts else "never"
+    return datetime.fromtimestamp(ts).strftime("%m/%d/%y %-I:%M %p") if ts else "never"
+
+
+def fmt_date(iso):
+    """Every date in the menu reads mm/dd/yy."""
+    return date.fromisoformat(iso).strftime("%m/%d/%y") if iso else "—"
+
+
+def short_address(addr):
+    """Drop the street type for display: "2832 Fairway Dr" -> "2832 Fairway"."""
+    words = addr.split()
+    if len(words) > 2 and words[-1].lower().rstrip(".") in STREET_SUFFIXES:
+        words = words[:-1]
+    return " ".join(words)
 
 
 def clean(s):
     """Keep SwiftBar's '|' parameter separator and quotes out of text."""
     return str(s).replace("|", "/").replace('"', "'")
+
+
+SUBDIV_DROP = re.compile(r"\b(the|add|addition|sub|subdivision|plat|final)\b", re.I)
+SUBDIV_ABBR = [(re.compile(r"\bestates?\b", re.I), "Est"),
+               (re.compile(r"\b(village|vlg)\b", re.I), "Vlg")]
+
+
+def short_subdiv(name):
+    """Compact MLS / county subdivision name for display: "The Orchards 8th Add"
+    -> "Orchards 8th", "ESTATES AT PLUM HILL PLAT 2" -> "Est/Plum Hill 2"."""
+    if not name:
+        return "—"
+    s = name
+    if s.isupper():
+        s = " ".join(w[:1] + w[1:].lower() for w in s.split())
+    s = re.sub(r"(?i)estatesplat", "Estates Plat", s).replace("-", " ")
+    s = re.sub(r"\s+at\s+(the\s+)?", "/", s, flags=re.I)
+    s = SUBDIV_DROP.sub("", s)
+    for pat, rep in SUBDIV_ABBR:
+        s = pat.sub(rep, s)
+    s = re.sub(r"\b0+(\d)", r"\1", s)  # Ph 01 -> Ph 1
+    s = re.sub(r"\s*/\s*", "/", s)
+    return " ".join(s.split()) or name
 
 
 def clamp(s, width):
@@ -822,10 +906,10 @@ def tooltip_for(h, kind):
         bits.append(f"HOA ${h['hoa']}/mo")
     if kind == "active":
         if h.get("listed_on"):
-            bits.append(f"first seen {h['listed_on']}")
+            bits.append(f"first seen {fmt_date(h['listed_on'])}")
         if h.get("change"):
             bits.append(f"price {'cut' if h['change'] < 0 else 'raised'} {fmt_short(abs(h['change']))} "
-                        f"on {h['changed_on']}")
+                        f"on {fmt_date(h['changed_on'])}")
         if h.get("orig_price"):
             bits.append(f"originally {fmt_price(h['orig_price'])}")
     if kind == "sold":
@@ -851,12 +935,12 @@ def stats_line(homes):
     return s
 
 
-def listing_row(h, last_col, kind):
-    cols = f"{clamp(h['address'], ADDR_W):<{ADDR_W}} "
+def listing_row(h, last_col, kind, last_w=6):
+    cols = f"{clamp(short_address(h['address']), ADDR_W):<{ADDR_W}} "
     if kind != "sold":
         cols += f"{'PEND' if kind == 'pending' else '':<4} "
-    cols += (f"{fmt_short(h['price']):>7} {fmt_bb(h['beds'], h['baths']):>9} "
-             f"{fmt_num(h['sqft']):>6} {fmt_num(h['ppsf'], '$'):>5} {last_col:>6}")
+    cols += (f"{fmt_short(h['price']):>7} {fmt_bb_col(h['beds'], h['baths']):>7} "
+             f"{fmt_num(h['sqft']):>6} {fmt_num(h['ppsf'], '$'):>5} {last_col:>{last_w}}")
     params = [TABLE, f'tooltip="{tooltip_for(h, kind)}"']
     if h.get("url"):
         params.append(f"href={h['url']}")
@@ -874,12 +958,12 @@ def listing_row(h, last_col, kind):
     return f"{ROW_INDENT}{clean(cols)} | {' '.join(params)}"
 
 
-def table_title(label, last_col, status, href):
+def table_title(label, last_col, status, href, last_w=6):
     """Section title that doubles as the column header: the label fills the
     address (and status) columns so PRICE … line up with the rows below."""
     width = len(ROW_INDENT) + ADDR_W + 1 + (5 if status else 0)
-    cols = (f"{clamp(label, width - 1):<{width}}{'PRICE':>7} {'BD/BA':>9} {'SQFT':>6} "
-            f"{'$/SF':>5} {last_col:>6}")
+    cols = (f"{clamp(label, width - 1):<{width}}{'PRICE':>7} {'BD/BA':>7} {'SQFT':>6} "
+            f"{'$/SF':>5} {last_col:>{last_w}}")
     return f"{clean(cols)} | {TABLE_BOLD} {WHITE} href={href} tooltip=\"View all on Redfin\""
 
 
@@ -998,12 +1082,15 @@ def render(cfg, lat, lon, url, url_note, results, today):
         style = f"{ACCENT_GREEN} size=13" if primary else f"{LABEL_COLOR} size=12"
         print(f"     Comps value  ≈ {fmt_short(value)}  (${ppsf}/sf · {n} closest {'sale' if n == 1 else 'sales'}) "
               f"| {MONO_F} {style} tooltip=\"{clean(tip)}\"")
+        # Menlo keeps the columns lined up; the first row is their header.
+        print(f"--{'ADDRESS':<{ADDR_W}} {'SUBDIVISION':<{SUBDIV_W}} {'SOLD':<8} {'PRICE':>7} {'SQFT':>6} "
+              f"{'$/SF':>5} | {TABLE_BOLD} {WHITE}")
         for h in comps[:n]:
-            when = date.fromisoformat(h["sold_date"]).strftime("%b %-d '%y")
-            sub = clamp(h.get("subdiv") or "—", 26)
-            print(f"--{clamp(h['address'], 22):<22} {sub:<26} {when:<10} "
-                  f"{fmt_short(h['price']):>6} {h['sqft']:>5,}sf ${h['ppsf']}/sf "
-                  f"| href={h['url']} {MONO_F} size=11")
+            subdiv = clamp(short_subdiv(h.get("subdiv")), SUBDIV_W)
+            tip = f' tooltip="{clean(h["subdiv"])}"' if h.get("subdiv") else ""
+            print(f"--{clamp(short_address(h['address']), ADDR_W):<{ADDR_W}} {subdiv:<{SUBDIV_W}} "
+                  f"{fmt_date(h['sold_date'])} {fmt_short(h['price']):>7} {fmt_num(h['sqft']):>6} "
+                  f"{fmt_num(h['ppsf'], '$'):>5} | href={h['url']} {TABLE}{tip}")
         if map_link:
             print("-----")
             print(f"--{map_link}")
@@ -1019,15 +1106,14 @@ def render(cfg, lat, lon, url, url_note, results, today):
         if trend:
             change, pct, since = trend
             arrow = "▲" if change >= 0 else "▼"
-            since_txt = date.fromisoformat(since).strftime("%-m/%-d")
-            line += f"  ·  {arrow}{fmt_short(abs(change))} ({pct:+.1f}%) since {since_txt}"
+            line += f"  ·  {arrow}{fmt_short(abs(change))} ({pct:+.1f}%) since {fmt_date(since)}"
         style = f"{ACCENT_GREEN} size=13" if primary else f"{LABEL_COLOR} size=12"
         print(f"{line} | {MONO_F} {style}")
 
     # ── Your home ──
     # One line for the house itself; the full address and any disagreement with
     # Redfin's record live in the tooltip, and clicking opens the Redfin page.
-    facts = [clean(cfg["address"])]
+    facts = [clean(short_address(cfg["address"]))]
     tip = [f"{clean(cfg['address'])}, {clean(cfg['city'])}, {cfg['state']} {cfg['zip']}"]
     if home:
         if subject.get("beds") is not None or home.get("baths") is not None:
@@ -1065,7 +1151,7 @@ def render(cfg, lat, lon, url, url_note, results, today):
     print("---")
 
     # ── On market: pending first (what buyers took), then active (asking) ──
-    label = f"ON MARKET · {len(pending)} pending · {len(active)} active"
+    label = f"{len(pending)} PENDING · {len(active)} ACTIVE"
     print(table_title(label, "DOM", status=True,
                       href=f"https://www.redfin.com/zipcode/{cfg['zip']}"))
     if stale_line(active_info):
@@ -1088,8 +1174,8 @@ def render(cfg, lat, lon, url, url_note, results, today):
     # ── Sold ──
     sold_link = (f"https://www.redfin.com/zipcode/{cfg['zip']}/filter/"
                  f"include={sold_filter_token(cfg['sold_days'])}")
-    print(table_title(f"SOLD · LAST {cfg['sold_days']} DAYS · {len(sold)}", "SOLD",
-                      status=False, href=sold_link))
+    print(table_title(f"{len(sold)} SOLD · {cfg['sold_days']} DAYS", "SOLD",
+                      status=False, href=sold_link, last_w=8))
     if stale_line(sold_info):
         print(stale_line(sold_info))
     if sold:
@@ -1097,8 +1183,7 @@ def render(cfg, lat, lon, url, url_note, results, today):
         if summary:
             print(f"     {summary} | {MONO_F} {DIMMED} size=11")
         for h in sold[:MAX_ROWS]:
-            d = date.fromisoformat(h["sold_date"]).strftime("%b %-d")
-            print(listing_row(h, d, "sold"))
+            print(listing_row(h, fmt_date(h["sold_date"]), "sold", last_w=8))
         if len(sold) > MAX_ROWS:
             print(f"     … and {len(sold) - MAX_ROWS} more | {MONO_F} {DIMMED} size=10")
     elif sold_raw is not None:
@@ -1120,13 +1205,13 @@ def run_check(cfg):
     force_stale()
     ok = True
     try:
-        lat, lon, url, note = resolve_location(cfg)
+        lat, lon, url, year_built, note = resolve_location(cfg)
     except Exception as e:  # noqa: BLE001
         print(f"location   FAIL  {e}")
         return 1
     print(f"location   ok    {lat:.5f}, {lon:.5f}")
     print(f"home url   {'ok   ' if url else 'MISS '} {url or note}")
-    results = gather(cfg, lat, lon, url)
+    results = gather(cfg, lat, lon, url, year_built)
     for kind, (obj, info) in results.items():
         if info["error"]:
             ok = False
@@ -1151,13 +1236,13 @@ def main(argv):
     if "--check" in argv:
         return run_check(cfg)
     try:
-        lat, lon, url, note = resolve_location(cfg)
+        lat, lon, url, year_built, note = resolve_location(cfg)
     except Exception as e:  # noqa: BLE001
         render_fatal(f"Couldn't locate home: {e}")
         return 0
     today = date.fromisoformat(os.environ["HOME_COMPS_FAKE_TODAY"]) \
         if os.environ.get("HOME_COMPS_FAKE_TODAY") else date.today()
-    render(cfg, lat, lon, url, note, gather(cfg, lat, lon, url), today)
+    render(cfg, lat, lon, url, note, gather(cfg, lat, lon, url, year_built), today)
     return 0
 
 

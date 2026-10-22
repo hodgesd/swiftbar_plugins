@@ -70,15 +70,49 @@ def test_parse_gis_rejects_challenge_and_errors():
         hc.parse_gis('{}&&{"resultCode": 1, "errorMessage": "bad region"}')
 
 
-def test_parse_home_page():
-    info = hc.parse_home_page(read("home_page.html"))
-    assert info == {"estimate": 462148, "beds": 4.0, "baths": 3.0, "sqft": 2800,
-                    "year_built": 1993, "property_id": "113600430"}
+def test_parse_avm():
+    info = hc.parse_avm(read("avm.json"))
+    assert info == {"estimate": 464044, "beds": 4.0, "baths": 3.0, "sqft": 2800,
+                    "property_id": "113600430"}
 
 
-def test_parse_home_page_rejects_challenge():
+def test_parse_avm_rejects_challenge_and_errors():
     with pytest.raises(hc.FetchError):
-        hc.parse_home_page("<html><body>Please verify you are human</body></html>")
+        hc.parse_avm("<html><body>Please verify you are human</body></html>")
+    with pytest.raises(hc.FetchError, match="no estimate"):
+        hc.parse_avm('{}&&{"resultCode": 0, "payload": {}}')
+
+
+def test_property_id():
+    assert hc.property_id("https://www.redfin.com/IL/Belleville/2616-Pro-Tour-Dr-62220/home/113600430") \
+        == "113600430"
+    assert hc.property_id("") is None
+
+
+def test_short_subdiv():
+    assert hc.short_subdiv("The Orchards 8th Add") == "Orchards 8th"
+    assert hc.short_subdiv("Orchards 16th Add Ph 01") == "Orchards 16th Ph 1"
+    assert hc.short_subdiv("ESTATES AT PLUM HILL PLAT 2") == "Est/Plum Hill 2"
+    assert hc.short_subdiv("BROOKHILL ESTATESPLAT 1") == "Brookhill Est 1"
+    assert hc.short_subdiv("SPYGLASS VILLAGE AT THE ORCHARDS") == "Spyglass Vlg/Orchards"
+    assert hc.short_subdiv("Weatherstone Sub") == "Weatherstone"
+    assert hc.short_subdiv(None) == "—"
+
+
+def test_short_address_and_fmt_date():
+    assert hc.short_address("2832 Fairway Dr") == "2832 Fairway"
+    assert hc.short_address("9 7th Fairway Ct.") == "9 7th Fairway"
+    assert hc.short_address("100 Main") == "100 Main"
+    assert hc.short_address("12 Fairway Glen") == "12 Fairway Glen"
+    assert hc.fmt_date("2025-12-19") == "12/19/25"
+    assert hc.fmt_date(None) == "—"
+
+
+def test_fmt_bb_col():
+    assert hc.fmt_bb_col(5.0, 2.5) == "5/2.5"
+    assert hc.fmt_bb_col(4.0, 3.0) == "4/3"
+    assert hc.fmt_bb_col(None, 2.0) == "—/2"
+    assert hc.fmt_bb_col(0, None) == "—"
 
 
 def test_parse_census():
@@ -266,13 +300,13 @@ def test_render_badges_and_title(capsys):
     hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
     out = capsys.readouterr().out.splitlines()
     assert out[0] == "⌂ $462K | font=SF Pro Display size=14"
-    assert any(line.startswith("ON MARKET · 0 pending · 2 active") and "href=" in line for line in out)
+    assert any(line.startswith("0 PENDING · 2 ACTIVE") and "href=" in line for line in out)
     fresh = next(line for line in out if "2 Fresh Ct" in line)
     cut = next(line for line in out if "1 Cut Ct" in line)
-    assert "NEW" in fresh and "color=#34C759" in fresh
-    assert "▼$10K" in cut and "color=#FF9500" in cut and "originally $300,000" in cut
+    assert "NEW" in fresh and hc.ACCENT_GREEN in fresh
+    assert "▼$10K" in cut and hc.ACCENT_ORANGE in cut and "originally $300,000" in cut
     assert out.index(next(line for line in out if "2 Fresh Ct" in line)) < out.index(cut)
-    assert any("Sep 30" in line for line in out)
+    assert any("09/30/26" in line for line in out)
     assert all(line.count("size=") <= 1 for line in out if "|" in line)
 
 
@@ -420,8 +454,8 @@ def test_render_comps_window_submenu_and_sqft_override(capsys):
     hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
     out = capsys.readouterr().out.splitlines()
     assert any("Comps value  ≈ $435K  ($145/sf · 1 closest sale)" in line for line in out)
-    sub = [line for line in out if line.startswith("--1 Old Ct")]
-    assert sub and "The Orchards" in sub[0] and "Mar 1 '26" in sub[0] and "href=https://x/old" in sub[0]
+    sub = [line for line in out if line.startswith("--1 Old ")]
+    assert sub and "Orchards" in sub[0] and "03/01/26" in sub[0] and "href=https://x/old" in sub[0]
     assert "3,000sf" in out[2] and "Redfin record: 2,800sf" in out[2]
     assert not any(line.startswith("--2 New Ct") for line in out)
     assert not any("★" in line for line in out if "2 New Ct" in line)  # excluded, not a comp
@@ -444,7 +478,7 @@ def test_title_shows_comps_value_first_by_default(capsys):
     assert out[0].startswith("⌂ $440K")
     comps_i = next(i for i, line in enumerate(out) if "Comps value" in line)
     redfin_i = next(i for i, line in enumerate(out) if "Redfin Estimate" in line)
-    assert comps_i < redfin_i and "color=#34C759 size=13" in out[comps_i]
+    assert comps_i < redfin_i and f"{hc.ACCENT_GREEN} size=13" in out[comps_i]
     assert "size=12" in out[redfin_i]
 
 
@@ -522,10 +556,10 @@ def test_render_filters_types_stars_comps_and_trend(capsys):
     hc.render(cfg, *HOME, "https://www.redfin.com/x", None, results, TODAY)
     out = capsys.readouterr().out.splitlines()
     assert not any("9 Lot Ct" in line for line in out)
-    assert any("Redfin Estimate" in line and "▲$12K (+2.7%) since 9/14" in line for line in out)
+    assert any("Redfin Estimate" in line and "▲$12K (+2.7%) since 09/14/26" in line for line in out)
     assert any("Comps value  ≈" in line for line in out)
     rows = [line for line in out if "href=https://x/" in line and line.startswith("     ")]
     sold_rows = [line for line in rows if "Twin Ct" in line or "Tiny Ct" in line]
-    assert "1 Twin Ct" in sold_rows[0] and "★" in sold_rows[0] and "★" not in sold_rows[1]
+    assert "1 Twin " in sold_rows[0] and "★" in sold_rows[0] and "★" not in sold_rows[1]
     assert any("$154/sf · 1 closest sale)" in line for line in out)  # 429,000 + 50sf × $50
     assert hc.read_json(hc.STATE_FILE)["estimates"][TODAY.isoformat()] == 462000
