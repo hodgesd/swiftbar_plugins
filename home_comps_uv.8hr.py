@@ -5,7 +5,7 @@
 # ///
 
 # <swiftbar.title>Neighborhood Real Estate Monitor</swiftbar.title>
-# <swiftbar.version>v2.3</swiftbar.version>
+# <swiftbar.version>v2.4</swiftbar.version>
 # <swiftbar.author>Derrick</swiftbar.author>
 # <swiftbar.author.github>hdgs</swiftbar.author.github>
 # <swiftbar.desc>Active, pending and sold homes around your address plus your Redfin Estimate, with NEW and price-drop tracking. Configure via ~/.config/swiftbar-plugins/home_comps_uv.json</swiftbar.desc>
@@ -160,14 +160,18 @@ HEADER_FONT = "font=SF Pro Display size=13"
 TITLE_FONT = "font=SF Pro Display size=14"
 # SwiftBar takes color=<light mode>,<dark mode>. The light-mode halves are
 # Apple's darker accessible variants, readable on the pale menu background.
-DIMMED = "color=#6E6E73,#8E8E93"
+# The macOS 27 glass menu can turn mid-gray over a dark wallpaper and flip
+# light/dark per region, so a fixed gray (or black/white) can match the
+# background. Secondary and header text use the system label color, which
+# follows the menu's actual appearance; size and font set them apart.
+DIMMED = ""
 ACCENT_GREEN = "color=#1F7A35,#34C759"
 ACCENT_RED = "color=#C4000F,#FF3B30"
 ACCENT_BLUE = "color=#0040DD,#0A84FF"
 ACCENT_ORANGE = "color=#B33000,#FF9500"
 ACCENT_TEAL = "color=#00707F,#30B0C7"
 LABEL_COLOR = "color=#3A3A3C,#AEAEB2"
-WHITE = "color=#000000,#FFFFFF"
+WHITE = ""
 
 
 # ─── Config ──────────────────────────────────────────────────────────────
