@@ -1,0 +1,485 @@
+{
+ "events": [
+  {
+   "id": "401909861",
+   "date": "2026-10-25T21:00Z",
+   "name": "Los Angeles Lakers at Utah Jazz",
+   "shortName": "LAL @ UTAH",
+   "season": {
+    "year": 2027,
+    "type": 2,
+    "slug": "regular-season"
+   },
+   "competitions": [
+    {
+     "id": "401909861",
+     "date": "2026-10-25T21:00Z",
+     "attendance": 0,
+     "type": {
+      "id": "1",
+      "abbreviation": "STD"
+     },
+     "venue": {
+      "id": "3093",
+      "fullName": "Delta Center",
+      "address": {
+       "city": "Salt Lake City",
+       "state": "UT"
+      },
+      "indoor": true
+     },
+     "competitors": [
+      {
+       "id": "26",
+       "type": "team",
+       "order": 0,
+       "homeAway": "home",
+       "team": {
+        "id": "26",
+        "location": "Utah",
+        "name": "Jazz",
+        "abbreviation": "UTAH",
+        "displayName": "Utah Jazz",
+        "venue": {
+         "id": "3093"
+        },
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/utah/utah-jazz"
+         }
+        ],
+        "logoDark": "https://a.espncdn.com/i/teamlogos/nba/500-dark/scoreboard/utah.png"
+       },
+       "score": "0",
+       "records": [
+        {
+         "name": "overall",
+         "abbreviation": "Total",
+         "type": "total",
+         "summary": "1-1"
+        },
+        {
+         "name": "Home",
+         "type": "home",
+         "summary": "1-0"
+        },
+        {
+         "name": "Road",
+         "type": "road",
+         "summary": "0-1"
+        }
+       ]
+      },
+      {
+       "id": "13",
+       "type": "team",
+       "order": 1,
+       "homeAway": "away",
+       "team": {
+        "id": "13",
+        "location": "Los Angeles",
+        "name": "Lakers",
+        "abbreviation": "LAL",
+        "displayName": "Los Angeles Lakers",
+        "venue": {
+         "id": "1841"
+        },
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/lal/los-angeles-lakers"
+         }
+        ],
+        "logoDark": "https://a.espncdn.com/i/teamlogos/nba/500-dark/scoreboard/lal.png"
+       },
+       "score": "0",
+       "records": [
+        {
+         "name": "overall",
+         "abbreviation": "Total",
+         "type": "total",
+         "summary": "2-0"
+        },
+        {
+         "name": "Home",
+         "type": "home",
+         "summary": "2-0"
+        },
+        {
+         "name": "Road",
+         "type": "road",
+         "summary": "0-0"
+        }
+       ]
+      }
+     ],
+     "status": {
+      "clock": 0.0,
+      "displayClock": "0.0",
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false,
+       "detail": "Sun, October 25th at 5:00 PM EDT",
+       "shortDetail": "10/25 - 5:00 PM EDT"
+      }
+     },
+     "broadcasts": [
+      {
+       "market": "away",
+       "names": [
+        "NBA League Pass",
+        "Spectrum Sports Net",
+        "Spectrum Sports Net +"
+       ]
+      },
+      {
+       "market": "home",
+       "names": [
+        "KJZZ-TV",
+        "Jazz+"
+       ]
+      }
+     ],
+     "broadcast": ""
+    }
+   ],
+   "links": [
+    {
+     "href": "https://www.espn.com/nba/game/_/gameId/401909861/lakers-jazz"
+    }
+   ],
+   "status": {
+    "clock": 0.0,
+    "displayClock": "0.0",
+    "period": 0,
+    "type": {
+     "id": "1",
+     "name": "STATUS_SCHEDULED",
+     "state": "pre",
+     "completed": false,
+     "detail": "Sun, October 25th at 5:00 PM EDT",
+     "shortDetail": "10/25 - 5:00 PM EDT"
+    }
+   }
+  },
+  {
+   "id": "401909862",
+   "date": "2026-10-25T22:00Z",
+   "name": "Indiana Pacers at Brooklyn Nets",
+   "shortName": "IND @ BKN",
+   "season": {
+    "year": 2027,
+    "type": 2,
+    "slug": "regular-season"
+   },
+   "competitions": [
+    {
+     "id": "401909862",
+     "date": "2026-10-25T22:00Z",
+     "attendance": 0,
+     "type": {
+      "id": "1",
+      "abbreviation": "STD"
+     },
+     "venue": {
+      "id": "3559",
+      "fullName": "Barclays Center",
+      "address": {
+       "city": "Brooklyn",
+       "state": "NY"
+      },
+      "indoor": true
+     },
+     "competitors": [
+      {
+       "id": "17",
+       "type": "team",
+       "order": 0,
+       "homeAway": "home",
+       "team": {
+        "id": "17",
+        "location": "Brooklyn",
+        "name": "Nets",
+        "abbreviation": "BKN",
+        "displayName": "Brooklyn Nets",
+        "venue": {
+         "id": "1826"
+        },
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/bkn/brooklyn-nets"
+         }
+        ],
+        "logoDark": "https://a.espncdn.com/i/teamlogos/nba/500-dark/scoreboard/bkn.png"
+       },
+       "score": "78",
+       "records": [
+        {
+         "name": "overall",
+         "abbreviation": "Total",
+         "type": "total",
+         "summary": "0-2"
+        },
+        {
+         "name": "Home",
+         "type": "home",
+         "summary": "0-1"
+        },
+        {
+         "name": "Road",
+         "type": "road",
+         "summary": "0-1"
+        }
+       ]
+      },
+      {
+       "id": "11",
+       "type": "team",
+       "order": 1,
+       "homeAway": "away",
+       "team": {
+        "id": "11",
+        "location": "Indiana",
+        "name": "Pacers",
+        "abbreviation": "IND",
+        "displayName": "Indiana Pacers",
+        "venue": {
+         "id": "2183"
+        },
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/ind/indiana-pacers"
+         }
+        ],
+        "logoDark": "https://a.espncdn.com/i/teamlogos/nba/500-dark/scoreboard/ind.png"
+       },
+       "score": "71",
+       "records": [
+        {
+         "name": "overall",
+         "abbreviation": "Total",
+         "type": "total",
+         "summary": "1-1"
+        },
+        {
+         "name": "Home",
+         "type": "home",
+         "summary": "0-1"
+        },
+        {
+         "name": "Road",
+         "type": "road",
+         "summary": "1-0"
+        }
+       ]
+      }
+     ],
+     "status": {
+      "clock": 261.0,
+      "displayClock": "4:21",
+      "period": 3,
+      "type": {
+       "id": "2",
+       "name": "STATUS_IN_PROGRESS",
+       "state": "in",
+       "completed": false,
+       "detail": "4:21 - 3rd Quarter",
+       "shortDetail": "4:21 - 3rd"
+      }
+     },
+     "broadcasts": [
+      {
+       "market": "away",
+       "names": [
+        "NBA League Pass",
+        "DAZN IND"
+       ]
+      },
+      {
+       "market": "home",
+       "names": [
+        "DAZN (YES)"
+       ]
+      }
+     ],
+     "broadcast": ""
+    }
+   ],
+   "links": [
+    {
+     "href": "https://www.espn.com/nba/game/_/gameId/401909862/pacers-nets"
+    }
+   ],
+   "status": {
+    "clock": 261.0,
+    "displayClock": "4:21",
+    "period": 3,
+    "type": {
+     "id": "2",
+     "name": "STATUS_IN_PROGRESS",
+     "state": "in",
+     "completed": false,
+     "detail": "4:21 - 3rd Quarter",
+     "shortDetail": "4:21 - 3rd"
+    }
+   }
+  },
+  {
+   "id": "401909863",
+   "date": "2026-10-25T23:00Z",
+   "name": "Orlando Magic at New York Knicks",
+   "shortName": "ORL @ NY",
+   "season": {
+    "year": 2027,
+    "type": 2,
+    "slug": "regular-season"
+   },
+   "competitions": [
+    {
+     "id": "401909863",
+     "date": "2026-10-25T23:00Z",
+     "attendance": 0,
+     "type": {
+      "id": "1",
+      "abbreviation": "STD"
+     },
+     "venue": {
+      "id": "1830",
+      "fullName": "Madison Square Garden",
+      "address": {
+       "city": "New York",
+       "state": "NY"
+      },
+      "indoor": true
+     },
+     "competitors": [
+      {
+       "id": "18",
+       "type": "team",
+       "order": 0,
+       "homeAway": "home",
+       "team": {
+        "id": "18",
+        "location": "New York",
+        "name": "Knicks",
+        "abbreviation": "NY",
+        "displayName": "New York Knicks",
+        "venue": {
+         "id": "1830"
+        },
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/ny/new-york-knicks"
+         }
+        ],
+        "logoDark": "https://a.espncdn.com/i/teamlogos/nba/500-dark/scoreboard/ny.png"
+       },
+       "score": "109",
+       "records": [
+        {
+         "name": "overall",
+         "abbreviation": "Total",
+         "type": "total",
+         "summary": "0-2"
+        },
+        {
+         "name": "Home",
+         "type": "home",
+         "summary": "0-1"
+        },
+        {
+         "name": "Road",
+         "type": "road",
+         "summary": "0-1"
+        }
+       ]
+      },
+      {
+       "id": "19",
+       "type": "team",
+       "order": 1,
+       "homeAway": "away",
+       "team": {
+        "id": "19",
+        "location": "Orlando",
+        "name": "Magic",
+        "abbreviation": "ORL",
+        "displayName": "Orlando Magic",
+        "venue": {
+         "id": "3432"
+        },
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/orl/orlando-magic"
+         }
+        ],
+        "logoDark": "https://a.espncdn.com/i/teamlogos/nba/500-dark/scoreboard/orl.png"
+       },
+       "score": "114",
+       "records": [
+        {
+         "name": "overall",
+         "abbreviation": "Total",
+         "type": "total",
+         "summary": "0-2"
+        },
+        {
+         "name": "Home",
+         "type": "home",
+         "summary": "0-2"
+        },
+        {
+         "name": "Road",
+         "type": "road",
+         "summary": "0-0"
+        }
+       ]
+      }
+     ],
+     "status": {
+      "clock": 0.0,
+      "displayClock": "0.0",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "detail": "Final",
+       "shortDetail": "Final"
+      }
+     },
+     "broadcasts": [
+      {
+       "market": "away",
+       "names": [
+        "NBA League Pass"
+       ]
+      }
+     ],
+     "broadcast": ""
+    }
+   ],
+   "links": [
+    {
+     "href": "https://www.espn.com/nba/game/_/gameId/401909863/magic-knicks"
+    }
+   ],
+   "status": {
+    "clock": 0.0,
+    "displayClock": "0.0",
+    "period": 4,
+    "type": {
+     "id": "3",
+     "name": "STATUS_FINAL",
+     "state": "post",
+     "completed": true,
+     "detail": "Final",
+     "shortDetail": "Final"
+    }
+   }
+  }
+ ]
+}

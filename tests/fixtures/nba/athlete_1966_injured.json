@@ -1,0 +1,190 @@
+{
+ "athlete": {
+  "id": "1966",
+  "displayName": "LeBron James",
+  "jersey": "23",
+  "position": {
+   "id": "7",
+   "name": "Forward",
+   "displayName": "Forward",
+   "abbreviation": "F",
+   "leaf": false,
+   "slug": "forward"
+  },
+  "team": {
+   "id": "20",
+   "slug": "philadelphia-76ers",
+   "location": "Philadelphia",
+   "name": "76ers",
+   "abbreviation": "PHI",
+   "displayName": "Philadelphia 76ers",
+   "isAllStar": false,
+   "links": [
+    {
+     "href": "https://www.espn.com/nba/team/_/name/phi/philadelphia-76ers"
+    }
+   ],
+   "groups": {
+    "id": "1",
+    "name": "Atlantic",
+    "abbreviation": "AT",
+    "slug": "atlantic",
+    "season": {
+     "year": 2027,
+     "endDate": "2027-06-26T06:59:00.000+00:00",
+     "type": {
+      "id": "2",
+      "type": 2,
+      "name": "Regular Season",
+      "abbreviation": "reg",
+      "slug": "regular-season",
+      "endDate": "2027-04-12T06:59:00.000+00:00",
+      "hasGroups": false,
+      "hasStandings": true,
+      "hasLegs": false,
+      "week": {
+       "number": 1,
+       "endDate": "2026-10-27T06:59:00.000+00:00",
+       "text": "Week 1"
+      },
+      "weeks": {},
+      "year": 2027
+     },
+     "types": {
+      "count": 5,
+      "pageIndex": 1,
+      "pageSize": 5,
+      "pageCount": 1,
+      "items": [
+       {
+        "id": "1",
+        "type": 1,
+        "name": "Preseason",
+        "abbreviation": "pre",
+        "slug": "preseason",
+        "endDate": "2026-10-20T06:59:00.000+00:00",
+        "hasGroups": false,
+        "hasStandings": true,
+        "hasLegs": false,
+        "weeks": {},
+        "year": 2027
+       },
+       {
+        "id": "2",
+        "type": 2,
+        "name": "Regular Season",
+        "abbreviation": "reg",
+        "slug": "regular-season",
+        "endDate": "2027-04-12T06:59:00.000+00:00",
+        "hasGroups": false,
+        "hasStandings": true,
+        "hasLegs": false,
+        "week": {
+         "number": 1,
+         "endDate": "2026-10-27T06:59:00.000+00:00",
+         "text": "Week 1"
+        },
+        "weeks": {},
+        "year": 2027
+       },
+       {
+        "id": "3",
+        "type": 3,
+        "name": "Postseason",
+        "abbreviation": "post",
+        "slug": "post-season",
+        "endDate": "2027-06-26T06:59:00.000+00:00",
+        "hasGroups": false,
+        "hasStandings": false,
+        "hasLegs": false,
+        "weeks": {},
+        "year": 2027
+       },
+       {
+        "id": "4",
+        "type": 4,
+        "name": "Off Season",
+        "abbreviation": "off",
+        "slug": "off-season",
+        "endDate": "2027-09-30T06:59:00.000+00:00",
+        "hasGroups": false,
+        "hasStandings": false,
+        "hasLegs": false,
+        "weeks": {},
+        "year": 2027
+       },
+       {
+        "id": "5",
+        "type": 5,
+        "name": "Play-In Season",
+        "abbreviation": "playin",
+        "slug": "play-in-season",
+        "endDate": "2027-04-17T06:59:00.000+00:00",
+        "hasGroups": false,
+        "hasStandings": false,
+        "hasLegs": false,
+        "weeks": {},
+        "year": 2027
+       }
+      ]
+     },
+     "displayName": "2026-27"
+    },
+    "parent": {
+     "id": "5",
+     "name": "Eastern Conference",
+     "abbreviation": "East",
+     "slug": "eastern-conference",
+     "season": {},
+     "parent": {},
+     "standings": {},
+     "isConference": true,
+     "teams": {}
+    },
+    "standings": {},
+    "isConference": false,
+    "teams": {}
+   },
+   "coaches": {},
+   "venue": {
+    "id": "1845",
+    "fullName": "Xfinity Mobile Arena",
+    "shortName": "Wells Fargo Center",
+    "address": {
+     "city": "Philadelphia",
+     "state": "PA"
+    },
+    "grass": false,
+    "indoor": true
+   },
+   "record": {},
+   "athletes": {},
+   "againstTheSpreadRecords": {},
+   "ranks": {},
+   "franchise": {
+    "id": "20",
+    "slug": "philadelphia-76ers",
+    "abbreviation": "PHI",
+    "displayName": "Philadelphia 76ers",
+    "location": "Philadelphia",
+    "name": "76ers"
+   }
+  },
+  "status": {
+   "id": "1",
+   "name": "Active",
+   "type": "active",
+   "abbreviation": "Active"
+  },
+  "active": true,
+  "injuries": [
+   {
+    "status": "Questionable",
+    "details": {
+     "type": "Left Ankle Sprain"
+    },
+    "shortComment": "Day to day."
+   }
+  ]
+ }
+}

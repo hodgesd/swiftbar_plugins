@@ -1,0 +1,69 @@
+{
+ "statistics": {
+  "displayName": "Stats",
+  "labels": [
+   "GP",
+   "MIN",
+   "FG%",
+   "3P%",
+   "FT%",
+   "REB",
+   "AST",
+   "BLK",
+   "STL",
+   "PF",
+   "TO",
+   "PTS"
+  ],
+  "names": [
+   "gamesPlayed",
+   "avgMinutes",
+   "fieldGoalPct",
+   "threePointPct",
+   "freeThrowPct",
+   "avgRebounds",
+   "avgAssists",
+   "avgBlocks",
+   "avgSteals",
+   "avgFouls",
+   "avgTurnovers",
+   "avgPoints"
+  ],
+  "splits": [
+   {
+    "displayName": "Regular Season",
+    "stats": [
+     "2",
+     "33.5",
+     "37.0",
+     "14.3",
+     "76.9",
+     "9.5",
+     "6.0",
+     "1.0",
+     "2.0",
+     "3.5",
+     "3.0",
+     "15.5"
+    ]
+   },
+   {
+    "displayName": "Career",
+    "stats": [
+     "1624",
+     "37.6",
+     "50.7",
+     "34.8",
+     "73.7",
+     "7.5",
+     "7.4",
+     "0.7",
+     "1.5",
+     "1.8",
+     "3.5",
+     "26.8"
+    ]
+   }
+  ]
+ }
+}

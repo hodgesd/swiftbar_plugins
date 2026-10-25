@@ -1,0 +1,698 @@
+{
+ "team": {
+  "id": "13",
+  "abbreviation": "LAL",
+  "location": "Los Angeles",
+  "name": "Lakers",
+  "displayName": "Los Angeles Lakers",
+  "clubhouse": "https://www.espn.com/nba/team/_/name/lal/los-angeles-lakers",
+  "recordSummary": "2-0",
+  "seasonSummary": "2026-27",
+  "standingSummary": "1st in Pacific Division",
+  "groups": {
+   "id": "4",
+   "parent": {
+    "id": "6"
+   },
+   "isConference": false
+  }
+ },
+ "events": [
+  {
+   "id": "401909092",
+   "date": "2026-10-22T02:00Z",
+   "name": "Golden State Warriors at Los Angeles Lakers",
+   "shortName": "GS @ LAL",
+   "season": {
+    "year": 2027,
+    "displayName": "2026-27"
+   },
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401909092",
+     "date": "2026-10-22T02:00Z",
+     "attendance": 19057,
+     "type": {
+      "id": "1",
+      "text": "Standard",
+      "abbreviation": "STD",
+      "slug": "standard",
+      "type": "standard"
+     },
+     "venue": {
+      "fullName": "crypto.com Arena",
+      "address": {
+       "city": "Los Angeles",
+       "state": "CA"
+      }
+     },
+     "competitors": [
+      {
+       "id": "13",
+       "type": "team",
+       "order": 0,
+       "homeAway": "home",
+       "winner": true,
+       "team": {
+        "id": "13",
+        "location": "Los Angeles",
+        "abbreviation": "LAL",
+        "displayName": "Los Angeles Lakers",
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/lal/los-angeles-lakers"
+         }
+        ]
+       },
+       "score": {
+        "value": 127.0,
+        "displayValue": "127"
+       },
+       "record": [
+        {
+         "id": "900",
+         "abbreviation": "Game",
+         "displayName": "Record Year To Date",
+         "type": "total",
+         "displayValue": "1-0"
+        },
+        {
+         "id": "61",
+         "displayName": "CONF",
+         "type": "vsconf",
+         "displayValue": "0-0"
+        }
+       ]
+      },
+      {
+       "id": "9",
+       "type": "team",
+       "order": 1,
+       "homeAway": "away",
+       "winner": false,
+       "team": {
+        "id": "9",
+        "location": "Golden State",
+        "abbreviation": "GS",
+        "displayName": "Golden State Warriors",
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/gs/golden-state-warriors"
+         }
+        ]
+       },
+       "score": {
+        "value": 105.0,
+        "displayValue": "105"
+       },
+       "record": [
+        {
+         "id": "900",
+         "abbreviation": "Game",
+         "displayName": "Record Year To Date",
+         "type": "total",
+         "displayValue": "0-1"
+        },
+        {
+         "id": "61",
+         "displayName": "CONF",
+         "type": "vsconf",
+         "displayValue": "0-0"
+        }
+       ]
+      }
+     ],
+     "broadcasts": [
+      {
+       "type": {
+        "id": "1",
+        "shortName": "TV"
+       },
+       "market": {
+        "id": "1",
+        "type": "National"
+       },
+       "media": {
+        "shortName": "ESPN"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      }
+     ],
+     "status": {
+      "clock": 0.0,
+      "displayClock": "0.0",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "detail": "Final",
+       "shortDetail": "Final"
+      }
+     }
+    }
+   ],
+   "links": [
+    {
+     "href": "https://www.espn.com/nba/game/_/gameId/401909092/warriors-lakers"
+    }
+   ]
+  },
+  {
+   "id": "401909851",
+   "date": "2026-10-24T02:00Z",
+   "name": "LA Clippers at Los Angeles Lakers",
+   "shortName": "LAC @ LAL",
+   "season": {
+    "year": 2027,
+    "displayName": "2026-27"
+   },
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401909851",
+     "date": "2026-10-24T02:00Z",
+     "attendance": 19057,
+     "type": {
+      "id": "1",
+      "text": "Standard",
+      "abbreviation": "STD",
+      "slug": "standard",
+      "type": "standard"
+     },
+     "venue": {
+      "fullName": "crypto.com Arena",
+      "address": {
+       "city": "Los Angeles",
+       "state": "CA"
+      }
+     },
+     "competitors": [
+      {
+       "id": "13",
+       "type": "team",
+       "order": 0,
+       "homeAway": "home",
+       "winner": true,
+       "team": {
+        "id": "13",
+        "location": "Los Angeles",
+        "abbreviation": "LAL",
+        "displayName": "Los Angeles Lakers",
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/lal/los-angeles-lakers"
+         }
+        ]
+       },
+       "score": {
+        "value": 125.0,
+        "displayValue": "125"
+       },
+       "record": [
+        {
+         "id": "900",
+         "abbreviation": "Game",
+         "displayName": "Record Year To Date",
+         "type": "total",
+         "displayValue": "2-0"
+        },
+        {
+         "id": "61",
+         "displayName": "CONF",
+         "type": "vsconf",
+         "displayValue": "0-0"
+        }
+       ]
+      },
+      {
+       "id": "12",
+       "type": "team",
+       "order": 1,
+       "homeAway": "away",
+       "winner": false,
+       "team": {
+        "id": "12",
+        "location": "LA",
+        "abbreviation": "LAC",
+        "displayName": "LA Clippers",
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/lac/la-clippers"
+         }
+        ]
+       },
+       "score": {
+        "value": 117.0,
+        "displayValue": "117"
+       },
+       "record": [
+        {
+         "id": "900",
+         "abbreviation": "Game",
+         "displayName": "Record Year To Date",
+         "type": "total",
+         "displayValue": "1-1"
+        },
+        {
+         "id": "61",
+         "displayName": "CONF",
+         "type": "vsconf",
+         "displayValue": "0-0"
+        }
+       ]
+      }
+     ],
+     "broadcasts": [
+      {
+       "type": {
+        "id": "6",
+        "shortName": "Subscription Package"
+       },
+       "market": {
+        "id": "3",
+        "type": "Away"
+       },
+       "media": {
+        "shortName": "NBA League Pass"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      },
+      {
+       "type": {
+        "id": "1",
+        "shortName": "TV"
+       },
+       "market": {
+        "id": "2",
+        "type": "Home"
+       },
+       "media": {
+        "shortName": "Spectrum Sports Net"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      },
+      {
+       "type": {
+        "id": "4",
+        "shortName": "Streaming"
+       },
+       "market": {
+        "id": "2",
+        "type": "Home"
+       },
+       "media": {
+        "shortName": "Spectrum Sports Net +"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      },
+      {
+       "type": {
+        "id": "4",
+        "shortName": "Streaming"
+       },
+       "market": {
+        "id": "3",
+        "type": "Away"
+       },
+       "media": {
+        "shortName": "ClipperVision"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      }
+     ],
+     "status": {
+      "clock": 0.0,
+      "displayClock": "0.0",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "detail": "Final",
+       "shortDetail": "Final"
+      }
+     }
+    }
+   ],
+   "links": [
+    {
+     "href": "https://www.espn.com/nba/game/_/gameId/401909851/clippers-lakers"
+    }
+   ]
+  },
+  {
+   "id": "401909861",
+   "date": "2026-10-25T21:00Z",
+   "name": "Los Angeles Lakers at Utah Jazz",
+   "shortName": "LAL @ UTAH",
+   "season": {
+    "year": 2027,
+    "displayName": "2026-27"
+   },
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401909861",
+     "date": "2026-10-25T21:00Z",
+     "attendance": 0,
+     "type": {
+      "id": "1",
+      "text": "Standard",
+      "abbreviation": "STD",
+      "slug": "standard",
+      "type": "standard"
+     },
+     "venue": {
+      "fullName": "Delta Center",
+      "address": {
+       "city": "Salt Lake City",
+       "state": "UT"
+      }
+     },
+     "competitors": [
+      {
+       "id": "26",
+       "type": "team",
+       "order": 0,
+       "homeAway": "home",
+       "team": {
+        "id": "26",
+        "location": "Utah",
+        "abbreviation": "UTAH",
+        "displayName": "Utah Jazz",
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/utah/utah-jazz"
+         }
+        ]
+       }
+      },
+      {
+       "id": "13",
+       "type": "team",
+       "order": 1,
+       "homeAway": "away",
+       "team": {
+        "id": "13",
+        "location": "Los Angeles",
+        "abbreviation": "LAL",
+        "displayName": "Los Angeles Lakers",
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/lal/los-angeles-lakers"
+         }
+        ]
+       }
+      }
+     ],
+     "broadcasts": [
+      {
+       "type": {
+        "id": "6",
+        "shortName": "Subscription Package"
+       },
+       "market": {
+        "id": "3",
+        "type": "Away"
+       },
+       "media": {
+        "shortName": "NBA League Pass"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      },
+      {
+       "type": {
+        "id": "1",
+        "shortName": "TV"
+       },
+       "market": {
+        "id": "3",
+        "type": "Away"
+       },
+       "media": {
+        "shortName": "Spectrum Sports Net"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      },
+      {
+       "type": {
+        "id": "4",
+        "shortName": "Streaming"
+       },
+       "market": {
+        "id": "3",
+        "type": "Away"
+       },
+       "media": {
+        "shortName": "Spectrum Sports Net +"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      },
+      {
+       "type": {
+        "id": "1",
+        "shortName": "TV"
+       },
+       "market": {
+        "id": "2",
+        "type": "Home"
+       },
+       "media": {
+        "shortName": "KJZZ-TV"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      },
+      {
+       "type": {
+        "id": "4",
+        "shortName": "Streaming"
+       },
+       "market": {
+        "id": "2",
+        "type": "Home"
+       },
+       "media": {
+        "shortName": "Jazz+"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      }
+     ],
+     "status": {
+      "clock": 0.0,
+      "displayClock": "0.0",
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false,
+       "detail": "Sun, October 25th at 5:00 PM EDT",
+       "shortDetail": "10/25 - 5:00 PM EDT"
+      }
+     }
+    }
+   ],
+   "links": [
+    {
+     "href": "https://www.espn.com/nba/game/_/gameId/401909861/lakers-jazz"
+    }
+   ]
+  },
+  {
+   "id": "401909880",
+   "date": "2026-10-28T03:00Z",
+   "name": "Portland Trail Blazers at Los Angeles Lakers",
+   "shortName": "POR @ LAL",
+   "season": {
+    "year": 2027,
+    "displayName": "2026-27"
+   },
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401909880",
+     "date": "2026-10-28T03:00Z",
+     "attendance": 0,
+     "type": {
+      "id": "1",
+      "text": "Standard",
+      "abbreviation": "STD",
+      "slug": "standard",
+      "type": "standard"
+     },
+     "venue": {
+      "fullName": "crypto.com Arena",
+      "address": {
+       "city": "Los Angeles",
+       "state": "CA"
+      }
+     },
+     "competitors": [
+      {
+       "id": "13",
+       "type": "team",
+       "order": 0,
+       "homeAway": "home",
+       "team": {
+        "id": "13",
+        "location": "Los Angeles",
+        "abbreviation": "LAL",
+        "displayName": "Los Angeles Lakers",
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/lal/los-angeles-lakers"
+         }
+        ]
+       }
+      },
+      {
+       "id": "22",
+       "type": "team",
+       "order": 1,
+       "homeAway": "away",
+       "team": {
+        "id": "22",
+        "location": "Portland",
+        "abbreviation": "POR",
+        "displayName": "Portland Trail Blazers",
+        "links": [
+         {
+          "href": "https://www.espn.com/nba/team/_/name/por/portland-trail-blazers"
+         }
+        ]
+       }
+      }
+     ],
+     "broadcasts": [
+      {
+       "type": {
+        "id": "4",
+        "shortName": "Streaming"
+       },
+       "market": {
+        "id": "1",
+        "type": "National"
+       },
+       "media": {
+        "shortName": "Peacock"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      },
+      {
+       "type": {
+        "id": "1",
+        "shortName": "TV"
+       },
+       "market": {
+        "id": "1",
+        "type": "National"
+       },
+       "media": {
+        "shortName": "NBC"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      },
+      {
+       "type": {
+        "id": "1",
+        "shortName": "TV"
+       },
+       "market": {
+        "id": "2",
+        "type": "Home"
+       },
+       "media": {
+        "shortName": "Spectrum Sports Net"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      },
+      {
+       "type": {
+        "id": "4",
+        "shortName": "Streaming"
+       },
+       "market": {
+        "id": "2",
+        "type": "Home"
+       },
+       "media": {
+        "shortName": "Spectrum Sports Net +"
+       },
+       "lang": "en",
+       "region": "us",
+       "partnered": false
+      }
+     ],
+     "status": {
+      "clock": 0.0,
+      "displayClock": "0.0",
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false,
+       "detail": "Tue, October 27th at 11:00 PM EDT",
+       "shortDetail": "10/27 - 11:00 PM EDT"
+      }
+     }
+    }
+   ],
+   "links": [
+    {
+     "href": "https://www.espn.com/nba/game/_/gameId/401909880/trail-blazers-lakers"
+    }
+   ]
+  }
+ ]
+}

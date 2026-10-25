@@ -1,0 +1,114 @@
+{
+ "categories": [
+  {
+   "name": "totals",
+   "displayName": "Regular Season Totals",
+   "labels": [
+    "FG",
+    "FG%",
+    "3PT",
+    "3P%",
+    "FT",
+    "FT%",
+    "OR",
+    "DR",
+    "REB",
+    "AST",
+    "BLK",
+    "STL",
+    "PF",
+    "TO",
+    "PTS"
+   ],
+   "names": [
+    "fieldGoalsMade-fieldGoalsAttempted",
+    "fieldGoalPct",
+    "threePointFieldGoalsMade-threePointFieldGoalsAttempted",
+    "threePointFieldGoalPct",
+    "freeThrowsMade-freeThrowsAttempted",
+    "freeThrowPct",
+    "offensiveRebounds",
+    "defensiveRebounds",
+    "totalRebounds",
+    "assists",
+    "blocks",
+    "steals",
+    "fouls",
+    "turnovers",
+    "points"
+   ],
+   "statistics": [
+    {
+     "teamId": "5",
+     "teamSlug": "cleveland-cavaliers",
+     "season": {
+      "year": 2004,
+      "displayName": "2003-04"
+     },
+     "stats": [
+      "622-1492",
+      "41.7",
+      "63-217",
+      "29.0",
+      "347-460",
+      "75.4",
+      "99",
+      "333",
+      "432",
+      "465",
+      "58",
+      "130",
+      "149",
+      "273",
+      "1654"
+     ],
+     "position": "F"
+    },
+    {
+     "teamId": "5",
+     "teamSlug": "cleveland-cavaliers",
+     "season": {
+      "year": 2005,
+      "displayName": "2004-05"
+     },
+     "stats": [
+      "795-1684",
+      "47.2",
+      "108-308",
+      "35.1",
+      "477-636",
+      "75.0",
+      "111",
+      "477",
+      "588",
+      "577",
+      "52",
+      "177",
+      "146",
+      "262",
+      "2175"
+     ],
+     "position": "F"
+    }
+   ],
+   "totals": [
+    "15971-31529",
+    "50.7",
+    "2637-7572",
+    "34.8",
+    "8892-12064",
+    "73.7",
+    "1844",
+    "10270",
+    "12114",
+    "12028",
+    "1187",
+    "2421",
+    "2869",
+    "5656",
+    "43471"
+   ],
+   "sortKey": "totals"
+  }
+ ]
+}

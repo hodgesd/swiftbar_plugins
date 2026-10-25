@@ -1,0 +1,274 @@
+{
+ "leaders": {
+  "categories": [
+   {
+    "name": "pointsPerGame",
+    "abbreviation": "PTS",
+    "displayName": "Points Per Game",
+    "leaders": [
+     {
+      "displayValue": "36.5",
+      "value": 36.5,
+      "team": {
+       "abbreviation": "MEM"
+      },
+      "athlete": {
+       "id": "4065733",
+       "displayName": "Ty Jerome",
+       "shortName": "T. Jerome"
+      }
+     },
+     {
+      "displayValue": "33.0",
+      "value": 33.0,
+      "team": {
+       "abbreviation": "PHX"
+      },
+      "athlete": {
+       "id": "3136193",
+       "displayName": "Devin Booker",
+       "shortName": "D. Booker"
+      }
+     },
+     {
+      "displayValue": "30.0",
+      "value": 30.0,
+      "team": {
+       "abbreviation": "MIN"
+      },
+      "athlete": {
+       "id": "4594268",
+       "displayName": "Anthony Edwards",
+       "shortName": "A. Edwards"
+      }
+     },
+     {
+      "displayValue": "28.7",
+      "value": 28.66666603088379,
+      "team": {
+       "abbreviation": "PHI"
+      },
+      "athlete": {
+       "id": "4431678",
+       "displayName": "Tyrese Maxey",
+       "shortName": "T. Maxey"
+      }
+     },
+     {
+      "displayValue": "28.3",
+      "value": 28.33333396911621,
+      "team": {
+       "abbreviation": "MIA"
+      },
+      "athlete": {
+       "id": "3032977",
+       "displayName": "Giannis Antetokounmpo",
+       "shortName": "G. Antetokounmpo"
+      }
+     }
+    ]
+   },
+   {
+    "name": "assistsPerGame",
+    "abbreviation": "AST",
+    "displayName": "Assists Per Game",
+    "leaders": [
+     {
+      "displayValue": "11.3",
+      "value": 11.333333015441895,
+      "team": {
+       "abbreviation": "WSH"
+      },
+      "athlete": {
+       "id": "4277905",
+       "displayName": "Trae Young",
+       "shortName": "T. Young"
+      }
+     },
+     {
+      "displayValue": "10.0",
+      "value": 10.0,
+      "team": {
+       "abbreviation": "ATL"
+      },
+      "athlete": {
+       "id": "4701230",
+       "displayName": "Jalen Johnson",
+       "shortName": "J. Johnson"
+      }
+     },
+     {
+      "displayValue": "9.5",
+      "value": 9.5,
+      "team": {
+       "abbreviation": "IND"
+      },
+      "athlete": {
+       "id": "4396993",
+       "displayName": "Tyrese Haliburton",
+       "shortName": "T. Haliburton"
+      }
+     },
+     {
+      "displayValue": "9.0",
+      "value": 9.0,
+      "team": {
+       "abbreviation": "SAC"
+      },
+      "athlete": {
+       "id": "3155942",
+       "displayName": "Domantas Sabonis",
+       "shortName": "D. Sabonis"
+      }
+     },
+     {
+      "displayValue": "9.0",
+      "value": 9.0,
+      "team": {
+       "abbreviation": "BOS"
+      },
+      "athlete": {
+       "id": "4065648",
+       "displayName": "Jayson Tatum",
+       "shortName": "J. Tatum"
+      }
+     }
+    ]
+   },
+   {
+    "name": "reboundsPerGame",
+    "abbreviation": "REB",
+    "displayName": "Rebounds Per Game",
+    "leaders": [
+     {
+      "displayValue": "18.5",
+      "value": 18.5,
+      "team": {
+       "abbreviation": "SAC"
+      },
+      "athlete": {
+       "id": "3155942",
+       "displayName": "Domantas Sabonis",
+       "shortName": "D. Sabonis"
+      }
+     },
+     {
+      "displayValue": "13.0",
+      "value": 13.0,
+      "team": {
+       "abbreviation": "IND"
+      },
+      "athlete": {
+       "id": "4017837",
+       "displayName": "Ivica Zubac",
+       "shortName": "I. Zubac"
+      }
+     },
+     {
+      "displayValue": "12.0",
+      "value": 12.0,
+      "team": {
+       "abbreviation": "MIN"
+      },
+      "athlete": {
+       "id": "3032976",
+       "displayName": "Rudy Gobert",
+       "shortName": "R. Gobert"
+      }
+     },
+     {
+      "displayValue": "12.0",
+      "value": 12.0,
+      "team": {
+       "abbreviation": "OKC"
+      },
+      "athlete": {
+       "id": "4433255",
+       "displayName": "Chet Holmgren",
+       "shortName": "C. Holmgren"
+      }
+     },
+     {
+      "displayValue": "12.0",
+      "value": 12.0,
+      "team": {
+       "abbreviation": "MEM"
+      },
+      "athlete": {
+       "id": "5041935",
+       "displayName": "Cameron Boozer",
+       "shortName": "C. Boozer"
+      }
+     }
+    ]
+   },
+   {
+    "name": "points",
+    "abbreviation": "PTS",
+    "displayName": "Points",
+    "leaders": [
+     {
+      "displayValue": "86.0",
+      "value": 86.0,
+      "team": {
+       "abbreviation": "PHI"
+      },
+      "athlete": {
+       "id": "4431678",
+       "displayName": "Tyrese Maxey",
+       "shortName": "T. Maxey"
+      }
+     },
+     {
+      "displayValue": "85.0",
+      "value": 85.0,
+      "team": {
+       "abbreviation": "MIA"
+      },
+      "athlete": {
+       "id": "3032977",
+       "displayName": "Giannis Antetokounmpo",
+       "shortName": "G. Antetokounmpo"
+      }
+     },
+     {
+      "displayValue": "73.0",
+      "value": 73.0,
+      "team": {
+       "abbreviation": "MEM"
+      },
+      "athlete": {
+       "id": "4065733",
+       "displayName": "Ty Jerome",
+       "shortName": "T. Jerome"
+      }
+     },
+     {
+      "displayValue": "72.0",
+      "value": 72.0,
+      "team": {
+       "abbreviation": "HOU"
+      },
+      "athlete": {
+       "id": "3202",
+       "displayName": "Kevin Durant",
+       "shortName": "K. Durant"
+      }
+     },
+     {
+      "displayValue": "71.0",
+      "value": 71.0,
+      "team": {
+       "abbreviation": "MIL"
+      },
+      "athlete": {
+       "id": "4395725",
+       "displayName": "Tyler Herro",
+       "shortName": "T. Herro"
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

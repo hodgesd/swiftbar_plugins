@@ -1,0 +1,972 @@
+{
+ "children": [
+  {
+   "name": "Eastern Conference",
+   "abbreviation": "East",
+   "standings": {
+    "entries": [
+     {
+      "team": {
+       "id": "15",
+       "abbreviation": "MIL",
+       "displayName": "Milwaukee Bucks"
+      },
+      "stats": [
+       {
+        "name": "avgPointsAgainst",
+        "type": "avgpointsagainst",
+        "displayValue": "129.0"
+       },
+       {
+        "name": "avgPointsFor",
+        "type": "avgpointsfor",
+        "displayValue": "119.0"
+       },
+       {
+        "name": "differential",
+        "type": "differential",
+        "displayValue": "-10.0"
+       },
+       {
+        "name": "divisionWinPercent",
+        "type": "divisionwinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "gamesBehind",
+        "type": "gamesbehind",
+        "displayValue": "3"
+       },
+       {
+        "name": "leagueWinPercent",
+        "type": "leaguewinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "losses",
+        "type": "losses",
+        "displayValue": "3"
+       },
+       {
+        "name": "playoffSeed",
+        "type": "playoffseed",
+        "displayValue": "14"
+       },
+       {
+        "name": "pointDifferential",
+        "type": "pointdifferential",
+        "displayValue": "-30"
+       },
+       {
+        "name": "points",
+        "type": "points",
+        "displayValue": "-1.5"
+       },
+       {
+        "name": "pointsAgainst",
+        "type": "pointsagainst",
+        "displayValue": "387"
+       },
+       {
+        "name": "pointsFor",
+        "type": "pointsfor",
+        "displayValue": "357"
+       },
+       {
+        "name": "streak",
+        "type": "streak",
+        "displayValue": "L3"
+       },
+       {
+        "name": "winPercent",
+        "type": "winpercent",
+        "displayValue": ".000"
+       },
+       {
+        "name": "wins",
+        "type": "wins",
+        "displayValue": "0"
+       },
+       {
+        "name": "gamesAhead",
+        "type": "gamesahead",
+        "displayValue": "-"
+       },
+       {
+        "name": "overall",
+        "type": "total",
+        "displayValue": "0-3"
+       },
+       {
+        "name": "Home",
+        "type": "home",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "Road",
+        "type": "road",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "vs. Div.",
+        "type": "vsdiv",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "vs. Conf.",
+        "type": "vsconf",
+        "displayValue": "0-3"
+       },
+       {
+        "name": "Last Ten Games",
+        "type": "lasttengames",
+        "displayValue": "0-3"
+       }
+      ]
+     },
+     {
+      "team": {
+       "id": "14",
+       "abbreviation": "MIA",
+       "displayName": "Miami Heat"
+      },
+      "stats": [
+       {
+        "name": "avgPointsAgainst",
+        "type": "avgpointsagainst",
+        "displayValue": "124.7"
+       },
+       {
+        "name": "avgPointsFor",
+        "type": "avgpointsfor",
+        "displayValue": "109.0"
+       },
+       {
+        "name": "differential",
+        "type": "differential",
+        "displayValue": "-15.7"
+       },
+       {
+        "name": "divisionWinPercent",
+        "type": "divisionwinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "gamesBehind",
+        "type": "gamesbehind",
+        "displayValue": "3"
+       },
+       {
+        "name": "leagueWinPercent",
+        "type": "leaguewinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "losses",
+        "type": "losses",
+        "displayValue": "3"
+       },
+       {
+        "name": "playoffSeed",
+        "type": "playoffseed",
+        "displayValue": "15"
+       },
+       {
+        "name": "pointDifferential",
+        "type": "pointdifferential",
+        "displayValue": "-47"
+       },
+       {
+        "name": "points",
+        "type": "points",
+        "displayValue": "-1.5"
+       },
+       {
+        "name": "pointsAgainst",
+        "type": "pointsagainst",
+        "displayValue": "374"
+       },
+       {
+        "name": "pointsFor",
+        "type": "pointsfor",
+        "displayValue": "327"
+       },
+       {
+        "name": "streak",
+        "type": "streak",
+        "displayValue": "L3"
+       },
+       {
+        "name": "winPercent",
+        "type": "winpercent",
+        "displayValue": ".000"
+       },
+       {
+        "name": "wins",
+        "type": "wins",
+        "displayValue": "0"
+       },
+       {
+        "name": "gamesAhead",
+        "type": "gamesahead",
+        "displayValue": "-"
+       },
+       {
+        "name": "overall",
+        "type": "total",
+        "displayValue": "0-3"
+       },
+       {
+        "name": "Home",
+        "type": "home",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "Road",
+        "type": "road",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "vs. Div.",
+        "type": "vsdiv",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "vs. Conf.",
+        "type": "vsconf",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "Last Ten Games",
+        "type": "lasttengames",
+        "displayValue": "0-3"
+       }
+      ]
+     },
+     {
+      "team": {
+       "id": "18",
+       "abbreviation": "NY",
+       "displayName": "New York Knicks"
+      },
+      "stats": [
+       {
+        "name": "avgPointsAgainst",
+        "type": "avgpointsagainst",
+        "displayValue": "106.5"
+       },
+       {
+        "name": "avgPointsFor",
+        "type": "avgpointsfor",
+        "displayValue": "101.5"
+       },
+       {
+        "name": "differential",
+        "type": "differential",
+        "displayValue": "-5.0"
+       },
+       {
+        "name": "divisionWinPercent",
+        "type": "divisionwinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "gamesBehind",
+        "type": "gamesbehind",
+        "displayValue": "2.5"
+       },
+       {
+        "name": "leagueWinPercent",
+        "type": "leaguewinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "losses",
+        "type": "losses",
+        "displayValue": "2"
+       },
+       {
+        "name": "playoffSeed",
+        "type": "playoffseed",
+        "displayValue": "11"
+       },
+       {
+        "name": "pointDifferential",
+        "type": "pointdifferential",
+        "displayValue": "-10"
+       },
+       {
+        "name": "points",
+        "type": "points",
+        "displayValue": "-1.0"
+       },
+       {
+        "name": "pointsAgainst",
+        "type": "pointsagainst",
+        "displayValue": "213"
+       },
+       {
+        "name": "pointsFor",
+        "type": "pointsfor",
+        "displayValue": "203"
+       },
+       {
+        "name": "streak",
+        "type": "streak",
+        "displayValue": "L2"
+       },
+       {
+        "name": "winPercent",
+        "type": "winpercent",
+        "displayValue": ".000"
+       },
+       {
+        "name": "wins",
+        "type": "wins",
+        "displayValue": "0"
+       },
+       {
+        "name": "gamesAhead",
+        "type": "gamesahead",
+        "displayValue": "0.5"
+       },
+       {
+        "name": "overall",
+        "type": "total",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "Home",
+        "type": "home",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "Road",
+        "type": "road",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "vs. Div.",
+        "type": "vsdiv",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "vs. Conf.",
+        "type": "vsconf",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "Last Ten Games",
+        "type": "lasttengames",
+        "displayValue": "0-2"
+       }
+      ]
+     },
+     {
+      "team": {
+       "id": "17",
+       "abbreviation": "BKN",
+       "displayName": "Brooklyn Nets"
+      },
+      "stats": [
+       {
+        "name": "avgPointsAgainst",
+        "type": "avgpointsagainst",
+        "displayValue": "117.5"
+       },
+       {
+        "name": "avgPointsFor",
+        "type": "avgpointsfor",
+        "displayValue": "112.0"
+       },
+       {
+        "name": "differential",
+        "type": "differential",
+        "displayValue": "-5.5"
+       },
+       {
+        "name": "divisionWinPercent",
+        "type": "divisionwinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "gamesBehind",
+        "type": "gamesbehind",
+        "displayValue": "2.5"
+       },
+       {
+        "name": "leagueWinPercent",
+        "type": "leaguewinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "losses",
+        "type": "losses",
+        "displayValue": "2"
+       },
+       {
+        "name": "playoffSeed",
+        "type": "playoffseed",
+        "displayValue": "12"
+       },
+       {
+        "name": "pointDifferential",
+        "type": "pointdifferential",
+        "displayValue": "-11"
+       },
+       {
+        "name": "points",
+        "type": "points",
+        "displayValue": "-1.0"
+       },
+       {
+        "name": "pointsAgainst",
+        "type": "pointsagainst",
+        "displayValue": "235"
+       },
+       {
+        "name": "pointsFor",
+        "type": "pointsfor",
+        "displayValue": "224"
+       },
+       {
+        "name": "streak",
+        "type": "streak",
+        "displayValue": "L2"
+       },
+       {
+        "name": "winPercent",
+        "type": "winpercent",
+        "displayValue": ".000"
+       },
+       {
+        "name": "wins",
+        "type": "wins",
+        "displayValue": "0"
+       },
+       {
+        "name": "gamesAhead",
+        "type": "gamesahead",
+        "displayValue": "0.5"
+       },
+       {
+        "name": "overall",
+        "type": "total",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "Home",
+        "type": "home",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "Road",
+        "type": "road",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "vs. Div.",
+        "type": "vsdiv",
+        "displayValue": "0-0"
+       },
+       {
+        "name": "vs. Conf.",
+        "type": "vsconf",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "Last Ten Games",
+        "type": "lasttengames",
+        "displayValue": "0-2"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "Western Conference",
+   "abbreviation": "West",
+   "standings": {
+    "entries": [
+     {
+      "team": {
+       "id": "3",
+       "abbreviation": "NO",
+       "displayName": "New Orleans Pelicans"
+      },
+      "stats": [
+       {
+        "name": "avgPointsAgainst",
+        "type": "avgpointsagainst",
+        "displayValue": "128.0"
+       },
+       {
+        "name": "avgPointsFor",
+        "type": "avgpointsfor",
+        "displayValue": "124.7"
+       },
+       {
+        "name": "differential",
+        "type": "differential",
+        "displayValue": "-3.3"
+       },
+       {
+        "name": "divisionWinPercent",
+        "type": "divisionwinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "gamesBehind",
+        "type": "gamesbehind",
+        "displayValue": "3"
+       },
+       {
+        "name": "leagueWinPercent",
+        "type": "leaguewinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "losses",
+        "type": "losses",
+        "displayValue": "3"
+       },
+       {
+        "name": "playoffSeed",
+        "type": "playoffseed",
+        "displayValue": "14"
+       },
+       {
+        "name": "pointDifferential",
+        "type": "pointdifferential",
+        "displayValue": "-10"
+       },
+       {
+        "name": "points",
+        "type": "points",
+        "displayValue": "-1.5"
+       },
+       {
+        "name": "pointsAgainst",
+        "type": "pointsagainst",
+        "displayValue": "384"
+       },
+       {
+        "name": "pointsFor",
+        "type": "pointsfor",
+        "displayValue": "374"
+       },
+       {
+        "name": "streak",
+        "type": "streak",
+        "displayValue": "L3"
+       },
+       {
+        "name": "winPercent",
+        "type": "winpercent",
+        "displayValue": ".000"
+       },
+       {
+        "name": "wins",
+        "type": "wins",
+        "displayValue": "0"
+       },
+       {
+        "name": "gamesAhead",
+        "type": "gamesahead",
+        "displayValue": "-"
+       },
+       {
+        "name": "overall",
+        "type": "total",
+        "displayValue": "0-3"
+       },
+       {
+        "name": "Home",
+        "type": "home",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "Road",
+        "type": "road",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "vs. Div.",
+        "type": "vsdiv",
+        "displayValue": "0-0"
+       },
+       {
+        "name": "vs. Conf.",
+        "type": "vsconf",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "Last Ten Games",
+        "type": "lasttengames",
+        "displayValue": "0-3"
+       }
+      ]
+     },
+     {
+      "team": {
+       "id": "9",
+       "abbreviation": "GS",
+       "displayName": "Golden State Warriors"
+      },
+      "stats": [
+       {
+        "name": "avgPointsAgainst",
+        "type": "avgpointsagainst",
+        "displayValue": "123.0"
+       },
+       {
+        "name": "avgPointsFor",
+        "type": "avgpointsfor",
+        "displayValue": "111.7"
+       },
+       {
+        "name": "differential",
+        "type": "differential",
+        "displayValue": "-11.3"
+       },
+       {
+        "name": "divisionWinPercent",
+        "type": "divisionwinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "gamesBehind",
+        "type": "gamesbehind",
+        "displayValue": "3"
+       },
+       {
+        "name": "leagueWinPercent",
+        "type": "leaguewinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "losses",
+        "type": "losses",
+        "displayValue": "3"
+       },
+       {
+        "name": "playoffSeed",
+        "type": "playoffseed",
+        "displayValue": "15"
+       },
+       {
+        "name": "pointDifferential",
+        "type": "pointdifferential",
+        "displayValue": "-34"
+       },
+       {
+        "name": "points",
+        "type": "points",
+        "displayValue": "-1.5"
+       },
+       {
+        "name": "pointsAgainst",
+        "type": "pointsagainst",
+        "displayValue": "369"
+       },
+       {
+        "name": "pointsFor",
+        "type": "pointsfor",
+        "displayValue": "335"
+       },
+       {
+        "name": "streak",
+        "type": "streak",
+        "displayValue": "L3"
+       },
+       {
+        "name": "winPercent",
+        "type": "winpercent",
+        "displayValue": ".000"
+       },
+       {
+        "name": "wins",
+        "type": "wins",
+        "displayValue": "0"
+       },
+       {
+        "name": "gamesAhead",
+        "type": "gamesahead",
+        "displayValue": "-"
+       },
+       {
+        "name": "overall",
+        "type": "total",
+        "displayValue": "0-3"
+       },
+       {
+        "name": "Home",
+        "type": "home",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "Road",
+        "type": "road",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "vs. Div.",
+        "type": "vsdiv",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "vs. Conf.",
+        "type": "vsconf",
+        "displayValue": "0-3"
+       },
+       {
+        "name": "Last Ten Games",
+        "type": "lasttengames",
+        "displayValue": "0-3"
+       }
+      ]
+     },
+     {
+      "team": {
+       "id": "23",
+       "abbreviation": "SAC",
+       "displayName": "Sacramento Kings"
+      },
+      "stats": [
+       {
+        "name": "avgPointsAgainst",
+        "type": "avgpointsagainst",
+        "displayValue": "124.5"
+       },
+       {
+        "name": "avgPointsFor",
+        "type": "avgpointsfor",
+        "displayValue": "108.0"
+       },
+       {
+        "name": "differential",
+        "type": "differential",
+        "displayValue": "-16.5"
+       },
+       {
+        "name": "divisionWinPercent",
+        "type": "divisionwinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "gamesBehind",
+        "type": "gamesbehind",
+        "displayValue": "2.5"
+       },
+       {
+        "name": "leagueWinPercent",
+        "type": "leaguewinpercent",
+        "displayValue": "0.000"
+       },
+       {
+        "name": "losses",
+        "type": "losses",
+        "displayValue": "2"
+       },
+       {
+        "name": "playoffSeed",
+        "type": "playoffseed",
+        "displayValue": "13"
+       },
+       {
+        "name": "pointDifferential",
+        "type": "pointdifferential",
+        "displayValue": "-33"
+       },
+       {
+        "name": "points",
+        "type": "points",
+        "displayValue": "-1.0"
+       },
+       {
+        "name": "pointsAgainst",
+        "type": "pointsagainst",
+        "displayValue": "249"
+       },
+       {
+        "name": "pointsFor",
+        "type": "pointsfor",
+        "displayValue": "216"
+       },
+       {
+        "name": "streak",
+        "type": "streak",
+        "displayValue": "L2"
+       },
+       {
+        "name": "winPercent",
+        "type": "winpercent",
+        "displayValue": ".000"
+       },
+       {
+        "name": "wins",
+        "type": "wins",
+        "displayValue": "0"
+       },
+       {
+        "name": "gamesAhead",
+        "type": "gamesahead",
+        "displayValue": "0.5"
+       },
+       {
+        "name": "overall",
+        "type": "total",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "Home",
+        "type": "home",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "Road",
+        "type": "road",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "vs. Div.",
+        "type": "vsdiv",
+        "displayValue": "0-1"
+       },
+       {
+        "name": "vs. Conf.",
+        "type": "vsconf",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "Last Ten Games",
+        "type": "lasttengames",
+        "displayValue": "0-2"
+       }
+      ]
+     },
+     {
+      "team": {
+       "id": "24",
+       "abbreviation": "SA",
+       "displayName": "San Antonio Spurs"
+      },
+      "stats": [
+       {
+        "name": "avgPointsAgainst",
+        "type": "avgpointsagainst",
+        "displayValue": "112.0"
+       },
+       {
+        "name": "avgPointsFor",
+        "type": "avgpointsfor",
+        "displayValue": "112.0"
+       },
+       {
+        "name": "differential",
+        "type": "differential",
+        "displayValue": "0.0"
+       },
+       {
+        "name": "divisionWinPercent",
+        "type": "divisionwinpercent",
+        "displayValue": "0.500"
+       },
+       {
+        "name": "gamesBehind",
+        "type": "gamesbehind",
+        "displayValue": "2"
+       },
+       {
+        "name": "leagueWinPercent",
+        "type": "leaguewinpercent",
+        "displayValue": "0.333"
+       },
+       {
+        "name": "losses",
+        "type": "losses",
+        "displayValue": "2"
+       },
+       {
+        "name": "playoffSeed",
+        "type": "playoffseed",
+        "displayValue": "11"
+       },
+       {
+        "name": "pointDifferential",
+        "type": "pointdifferential",
+        "displayValue": "0"
+       },
+       {
+        "name": "points",
+        "type": "points",
+        "displayValue": "-0.5"
+       },
+       {
+        "name": "pointsAgainst",
+        "type": "pointsagainst",
+        "displayValue": "336"
+       },
+       {
+        "name": "pointsFor",
+        "type": "pointsfor",
+        "displayValue": "336"
+       },
+       {
+        "name": "streak",
+        "type": "streak",
+        "displayValue": "W1"
+       },
+       {
+        "name": "winPercent",
+        "type": "winpercent",
+        "displayValue": ".333"
+       },
+       {
+        "name": "wins",
+        "type": "wins",
+        "displayValue": "1"
+       },
+       {
+        "name": "gamesAhead",
+        "type": "gamesahead",
+        "displayValue": "1"
+       },
+       {
+        "name": "overall",
+        "type": "total",
+        "displayValue": "1-2"
+       },
+       {
+        "name": "Home",
+        "type": "home",
+        "displayValue": "0-2"
+       },
+       {
+        "name": "Road",
+        "type": "road",
+        "displayValue": "1-0"
+       },
+       {
+        "name": "vs. Div.",
+        "type": "vsdiv",
+        "displayValue": "1-1"
+       },
+       {
+        "name": "vs. Conf.",
+        "type": "vsconf",
+        "displayValue": "1-2"
+       },
+       {
+        "name": "Last Ten Games",
+        "type": "lasttengames",
+        "displayValue": "1-2"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

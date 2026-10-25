@@ -88,6 +88,15 @@ Filenames use format: `name.{interval}.py` where interval is:
 - Teams in `~/.config/swiftbar-plugins/bball.json` (defaults in `DEFAULT_CONFIG`); last-good cache in `~/.cache/swiftbar-plugins/`
 - `BBALL_FAKE_TODAY=YYYY-MM-DD` renders the in-season / off-season layouts on any day
 
+**nba.1h.py**: NBA league tracker with tracked players (all ESPN)
+- League first: the menu bar counts today's whole slate (orange while any game is live) and the dropdown leads with it. Tracked players (`players`, ESPN athlete IDs — LeBron 1966 and Harden 3992 by default) are a section under it, not the subject; their teams are re-derived from `athlete.team` every run, so a trade needs no config edit
+- Endpoints and their traps, all probed 2026-10-25: scoreboard scores are strings but team-schedule scores are `{value, displayValue}`; the two also use different `broadcasts` shapes (`{market: "away", names: []}` vs `{market: {type: "National"}, media: {shortName}}`). Standings `entries` arrive unsorted, so rows are re-sorted by `playoffSeed`. Leaders categories must be matched by `name` (`pointsPerGame`), never `abbreviation` — PTS is shared by the per-game and the season-total category
+- Career points for the milestone line come from `/athletes/{id}/stats` → `categories[name=totals].totals` (last column), not from GP × PPG
+- Menu: TODAY/LIVE slate → MY GUYS (averages, last-N game log, season highs, milestone, team standing, injury) → NEXT UP + HEAD TO HEAD → LEAGUE LEADERS → STANDINGS. Every Menlo table's header and rows come from one shared row builder (`slate_row`, `log_row`, `standings_row`, `leader_row`) so they cannot drift; `scrub()` deliberately keeps leading spaces because that is what aligns the columns
+- `sf_symbol` config defaults to `figure.basketball` (a dribbling figure) to stay distinct from bball.6h.py's `basketball`
+- `./nba.1h.py --check` prints per-source counts and exits 1 on failure; tests in `tests/test_nba_parsers.py`. Config `~/.config/swiftbar-plugins/nba.json`, per-section last-good cache in `~/.cache/swiftbar-plugins/nba_cache.json`, `NBA_FAKE_TODAY` / `NBA_NO_CACHE` for testing
+- The interval is fixed at 1h by the filename; SwiftBar cannot speed a plugin up for a live game, so use the dropdown's Refresh for a live score
+
 **home_comps_uv.8hr.py**: Neighborhood comps from Redfin (stdlib only)
 - Redfin map-search JSON (`stingray/api/gis`) with a bounding `poly` around the home; `mpt=99` is required or the polygon is ignored. Status 9 = active + coming soon, 130 = pending, 9 + `sold_within_days` = sold
 - The CSV endpoint returns no rows for the St. Louis MLS, and autocomplete / initialInfo return 403; the Redfin Estimate comes from the `stingray/api/home/details/avm` JSON (property id from the home URL) because the HTML home page gets an AWS WAF challenge (202). Year built isn't in the AVM, so it comes from the home lookup in `location.json`. Redfin requests are spaced `REDFIN_GAP` (1.5s) apart
@@ -124,7 +133,7 @@ Note: The project is transitioning from `requirements.in/txt` to `pyproject.toml
 
 ## Testing Plugins
 
-**Run the parser tests** (bball, home_comps, deals, cprt):
+**Run the parser tests** (bball, nba, home_comps, deals, cprt):
 ```bash
 uv run --with pytest --with aiohttp --with beautifulsoup4 --with truststore pytest tests/
 ```
