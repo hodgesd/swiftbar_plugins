@@ -1011,9 +1011,14 @@ def leader_row(mark: str, rank: str, name: str, team: str, value: str) -> str:
     return f"{mark} {rank:>3} {who:<28} {value:>6}".rstrip()
 
 
+def indent(depth: int) -> str:
+    """SwiftBar nests one submenu level per '--', so a level is two dashes, not one."""
+    return "--" * depth
+
+
 def line(text: str, depth: int = 0, *params: str) -> None:
     opts = " ".join(p for p in params if p)
-    print(f"{'-' * depth}{scrub(text)}" + (f" | {opts}" if opts else ""))
+    print(f"{indent(depth)}{scrub(text)}" + (f" | {opts}" if opts else ""))
 
 
 def header(text: str, depth: int = 0) -> None:
@@ -1021,7 +1026,7 @@ def header(text: str, depth: int = 0) -> None:
 
 
 def separator(depth: int = 0) -> None:
-    print(f"{'-' * depth}---")
+    print(f"{indent(depth)}---")
 
 
 def calendar_line(g: Game, depth: int, label: str, style: str = "") -> str:
@@ -1031,7 +1036,7 @@ def calendar_line(g: Game, depth: int, label: str, style: str = "") -> str:
     title = f"{g.away_name or g.away} at {g.home_name or g.home}"
     where = g.venue or (g.home_name or g.home)
     appt = f'{g.tipoff:%Y/%m/%d} at {g.tipoff:%H%M} "{title}" at {where}'
-    return (f"{'-' * depth}Add to Calendar · {scrub(label)} | "
+    return (f"{indent(depth)}Add to Calendar · {scrub(label)} | "
             f"href=x-fantastical3://parse?add=1&sentence={quote(appt)} "
             f"sfimage=calendar.badge.plus alternate=true terminal=false{style}")
 

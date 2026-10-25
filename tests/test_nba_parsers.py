@@ -290,6 +290,20 @@ def test_season_state_goes_pre_only_when_the_next_tip_is_far_off():
 
 # --- rendering -------------------------------------------------------------------------
 
+def test_submenu_indent_is_two_dashes_per_level():
+    """SwiftBar opens one submenu level per '--'. A single dash is not a submenu, so
+    every nested row would render flat at the top level."""
+    assert nba.indent(0) == ""
+    assert nba.indent(1) == "--"
+    assert nba.indent(2) == "----"
+
+
+def test_rendered_submenu_rows_start_with_two_dashes(capsys):
+    nba.line("child", 1, nba.TABLE)
+    nba.separator(1)
+    assert capsys.readouterr().out.splitlines() == ["--child | font=Menlo size=11", "-----"]
+
+
 def test_scrub_keeps_leading_spaces_and_kills_pipes():
     """SwiftBar splits on the last '|', and the leading spaces are what align the tables."""
     assert nba.scrub("  padded  ") == "  padded"
