@@ -7,6 +7,7 @@ still pre-tip. Everything else — records, broadcasts, teams, stats — is unto
 
 Run:  uv run --with pytest --with aiohttp --with truststore pytest tests/
 """
+import asyncio
 import importlib.util
 import json
 import os
@@ -105,6 +106,13 @@ def test_team_schedule_reads_the_nested_score_shape():
     assert (games[0].away_score, games[0].home_score) == (105, 127)
 
 
+def test_team_schedule_reads_the_other_record_shape():
+    """The scoreboard sends records[].summary; a team schedule sends record[].displayValue."""
+    games, _ = nba.parse_team_schedule(read("team_schedule_13"), CENTRAL)
+    assert (games[0].away_record, games[0].home_record) == ("0-1", "1-0")
+    assert (games[1].away_record, games[1].home_record) == ("1-1", "2-0")
+
+
 def test_team_schedule_broadcast_prefers_national():
     games, _ = nba.parse_team_schedule(read("team_schedule_13"), CENTRAL)
     assert games[0].tv == "ESPN"          # market type National
@@ -191,6 +199,50 @@ def test_leaders_rank_sequentially_and_cover_each_category():
     assert set(table) == {"PTS", "AST", "REB"}
     assert [l.rank for l in table["AST"]] == [1, 2, 3, 4, 5]
     assert table["REB"][0].name == "Domantas Sabonis"
+
+
+def test_leader_average_labels_translate_to_the_overview_labels():
+    """The 'outside top N' row reads the player's own average, and the overview endpoint
+    names its averages differently (MPG is MIN). An unmapped abbreviation prints nothing,
+    which is why 3PM and PER — both shipped in the default config — are absent here."""
+    avg = nba.parse_overview_averages(read("overview_1966"))
+    for abbr, label in nba.LEADER_AVERAGE_LABELS.items():
+        assert label in avg, abbr
+    assert nba.LEADER_AVERAGE_LABELS["MPG"] == "MIN"
+    assert "3PM" not in nba.LEADER_AVERAGE_LABELS
+    assert "PER" not in nba.LEADER_AVERAGE_LABELS
+
+
+def test_outside_top_n_row_uses_the_overview_label(capsys):
+    player = nba.Player(pid="1966", name="LeBron James", team_abbr="PHI",
+                        averages={"MIN": "33.5"})
+    bundle = nba.Bundle(players=[player], leaders={"MPG": [
+        nba.Leader(rank=1, athlete_id="99", name="Someone Else", team="BOS", value="38.0")]})
+    nba.print_leaders(bundle, {"leader_categories": ["MPG"]})
+    out = capsys.readouterr().out
+    assert "33.5" in out and "outside top 1" in out
+
+
+def test_three_pointers_made_are_averaged_from_the_log():
+    """3PM ships in the default config and has no overview average, so it comes from the
+    log's makes-attempted column."""
+    log, _ = nba.parse_gamelog(read("gamelog_1966"), CENTRAL)
+    assert [g.stat("3PT") for g in log] == ["1-4", "0-3"]
+    player = nba.Player(pid="1966", name="LeBron James", log=log)
+    assert nba.average_for(player, "3PM") == "0.5"
+    assert nba.average_for(nba.Player(pid="x", name="X"), "3PM") is None
+    assert nba.made_per_game([], "3PT") is None
+
+
+def test_outside_top_n_row_is_skipped_for_a_category_with_no_source(capsys):
+    """PER is in LEADER_CATEGORY_NAMES but nothing reports a player's own PER."""
+    player = nba.Player(pid="1966", name="LeBron James", team_abbr="PHI",
+                        averages={"MIN": "33.5", "PTS": "15.5"})
+    assert nba.average_for(player, "PER") is None
+    bundle = nba.Bundle(players=[player], leaders={"PER": [
+        nba.Leader(rank=1, athlete_id="99", name="Someone Else", team="BOS", value="31.2")]})
+    nba.print_leaders(bundle, {"leader_categories": ["PER"]})
+    assert "outside top" not in capsys.readouterr().out
 
 
 def test_leaders_skip_categories_espn_does_not_return():
@@ -338,6 +390,46 @@ def test_game_row_switches_records_for_scores_once_the_ball_is_up():
     assert "71" in live and "78" in live and "Q3 4:21" in live
 
 
+def test_slate_numeric_column_right_aligns_under_the_widest_header():
+    head = nba.slate_row(" ", "AWAY", "REC/SC", " ", "HOME", "REC/SC", "STATUS", "TV")
+    row = nba.slate_row("●", "LAL", "2-0", "@", "UTAH", "1-1", "7:00p", "ESPN")
+    assert row.index("@") == head.index("HOME") - 2
+    assert row.index("2-0") + len("2-0") == head.index("REC/SC") + len("REC/SC")
+    assert row.index("7:00p") == head.index("STATUS")
+
+
+def test_slate_header_names_both_meanings_on_a_mixed_slate(capsys):
+    """A row's numeric column is a record before tip and the score after, so an evening
+    slate that is part final and part still to come cannot be headed just 'SCORE'."""
+    games, _ = nba.parse_scoreboard(read("scoreboard"), CENTRAL)
+
+    def header_of(subset):
+        nba.print_slate(subset, set(), False)
+        return capsys.readouterr().out.splitlines()[1]
+
+    assert "REC/SC" in header_of(games)                                   # pre + in + post
+    assert "REC" in header_of([g for g in games if g.state == "pre"])
+    assert "REC/SC" not in header_of([g for g in games if g.state == "pre"])
+    assert "SCORE" in header_of([g for g in games if g.state != "pre"])
+
+
+def test_finished_and_play_in_rows_are_actually_dimmed(capsys):
+    """DIMMED is deliberately empty so ordinary secondary text follows the system label
+    color; rows meant to recede need a real color or the distinction is invisible."""
+    assert nba.DIMMED == ""
+    games, _ = nba.parse_scoreboard(read("scoreboard"), CENTRAL)
+    nba.print_slate(games, set(), False)
+    final_row = [r for r in capsys.readouterr().out.splitlines() if "Final" in r][0]
+    assert nba.MUTED in final_row
+
+    play_in = nba.TeamStanding(team_id="1", abbr="MIA", name="Heat", wins=0, losses=2, seed=15)
+    top_half = nba.TeamStanding(team_id="2", abbr="NY", name="Knicks", wins=2, losses=0, seed=3)
+    nba.print_standings(nba.Bundle(standings={"East": [top_half, play_in]}), set())
+    rows = capsys.readouterr().out.splitlines()
+    assert nba.MUTED in [r for r in rows if "MIA" in r][0]
+    assert nba.MUTED not in [r for r in rows if "NY" in r][0]
+
+
 def test_game_row_marks_a_tracked_team():
     games, _ = nba.parse_scoreboard(read("scoreboard"), CENTRAL)
     assert nba.game_row(games[0], {games[0].home_id}).startswith(nba.TRACKED_MARK)
@@ -421,6 +513,148 @@ def test_apply_cache_substitutes_a_failed_player():
 def test_apply_cache_without_a_cache_is_a_no_op():
     fresh = nba.Bundle(errors={"games": "boom"})
     assert nba.apply_cache(fresh, None) is fresh
+
+
+def test_apply_cache_dates_the_slate_by_when_it_was_fetched():
+    """Every other section stays useful for days; the slate is only the one it was
+    fetched for. The tipoffs cannot date it — ESPN's 'today' routinely holds games that
+    tipped the previous evening in Central time."""
+    cached = built_bundle()
+    noon = datetime(2026, 10, 25, 12, 0, tzinfo=CENTRAL)
+
+    today_run = nba.apply_cache(nba.Bundle(errors={"games": "HTTP 503"}), cached, noon)
+    assert len(today_run.games) == 3 and "games" in today_run.stale
+
+    yesterday = nba.apply_cache(nba.Bundle(errors={"games": "HTTP 503"}), cached,
+                                noon - timedelta(days=1))
+    assert yesterday.games == [] and "games" not in yesterday.stale
+
+    unknown = nba.apply_cache(nba.Bundle(errors={"games": "HTTP 503"}), cached)
+    assert unknown.games == []
+
+
+def test_apply_cache_keeps_the_other_sections_whatever_the_slates_age():
+    cached = built_bundle()
+    fresh = nba.Bundle(errors={"games": "HTTP 503", "standings": "HTTP 503"})
+    merged = nba.apply_cache(fresh, cached, datetime(2026, 10, 1, 12, 0, tzinfo=CENTRAL))
+    assert merged.games == []
+    assert merged.standings["East"][0].abbr == "NY" and "standings" in merged.stale
+
+
+def test_apply_cache_restores_schedules_when_no_team_resolved():
+    cached = built_bundle()
+    fresh = nba.Bundle(errors={"players": "HTTP 500",
+                               "schedules": "no tracked teams (player lookup failed)"})
+    merged = nba.apply_cache(fresh, cached)
+    assert len(merged.schedules["13"]) == 4
+    assert nba.season_state(merged)[0] == "in"
+
+
+def test_save_cache_lets_an_empty_slate_clear_the_previous_one(tmp_path, monkeypatch):
+    """An off day really has no games. Keeping the previous slate would leave yesterday's
+    finals in the cache, ready to be shown under today's date."""
+    monkeypatch.setattr(nba, "CACHE_FILE", tmp_path / "nba_cache.json")
+    nba.save_cache(nba.Bundle(), built_bundle())
+    restored, stamp = nba.load_cache(CENTRAL)
+    assert restored.games == []
+    assert stamp is not None and stamp.tzinfo is not None
+    # A section nobody fetched this run keeps its copy — the schedules merge is per team.
+    assert len(restored.schedules["13"]) == 4
+
+
+def test_load_cache_zones_a_stamp_written_before_they_were_zoned(tmp_path, monkeypatch):
+    cache = tmp_path / "nba_cache.json"
+    monkeypatch.setattr(nba, "CACHE_FILE", cache)
+    cache.write_text(json.dumps({"timestamp": datetime.now().isoformat(),
+                                 "data": nba.bundle_to_dict(built_bundle())}))
+    restored, stamp = nba.load_cache(CENTRAL)
+    assert restored is not None
+    assert stamp is not None and stamp.tzinfo is not None
+
+
+def test_save_cache_keeps_a_failed_sections_last_good_copy(tmp_path, monkeypatch):
+    monkeypatch.setattr(nba, "CACHE_FILE", tmp_path / "nba_cache.json")
+    first = built_bundle()
+    nba.save_cache(first, None)
+    cached, _ = nba.load_cache(CENTRAL)
+    nba.save_cache(nba.Bundle(errors={"games": "HTTP 503"}), cached)
+    restored, _ = nba.load_cache(CENTRAL)
+    assert [g.matchup for g in restored.games] == [g.matchup for g in first.games]
+
+
+def test_save_cache_merges_schedules_per_team(tmp_path, monkeypatch):
+    monkeypatch.setattr(nba, "CACHE_FILE", tmp_path / "nba_cache.json")
+    nba.save_cache(built_bundle(), None)
+    cached, _ = nba.load_cache(CENTRAL)
+    nba.save_cache(nba.Bundle(schedules={"20": [game("new", 1)]}), cached)
+    restored, _ = nba.load_cache(CENTRAL)
+    assert set(restored.schedules) == {"13", "20"}
+
+
+def test_gather_all_records_a_schedule_error_when_every_player_fails(monkeypatch):
+    """Teams are derived from the players, so an empty team set after a failed lookup is a
+    failure, not an absence — without the error the cache has nothing to fill and the menu
+    claims the off-season."""
+    async def boom(session, url):
+        raise nba.FetchError("HTTP 503")
+
+    monkeypatch.setattr(nba, "fetch_json", boom)
+    bundle = asyncio.run(nba.gather_all({"players": [1966]}, CENTRAL))
+    assert bundle.schedules == {}
+    assert "schedules" in bundle.errors
+    assert nba.season_state(bundle) == ("pre", None)      # what the menu would have shown
+    merged = nba.apply_cache(bundle, built_bundle())
+    assert nba.season_state(merged)[0] == "in"
+    assert "schedules" in merged.stale
+
+
+def test_gather_all_is_silent_when_nothing_is_tracked(monkeypatch):
+    async def empty(session, url):
+        return {}
+
+    monkeypatch.setattr(nba, "fetch_json", empty)
+    bundle = asyncio.run(nba.gather_all({"players": []}, CENTRAL))
+    assert "schedules" not in bundle.errors
+
+
+def test_footer_credits_the_cache_for_a_substituted_player(capsys):
+    """apply_cache marks players one by one, never under the 'players' section key."""
+    bundle = nba.Bundle(errors={"players": "HTTP 500"}, stale=["player LeBron James"])
+    nba.print_footer(bundle)
+    out = capsys.readouterr().out
+    assert "players: HTTP 500 (showing cached)" in out
+    assert "no data" not in out
+
+
+def test_footer_says_no_data_when_nothing_was_cached(capsys):
+    nba.print_footer(nba.Bundle(errors={"players": "HTTP 500"}))
+    assert "players: HTTP 500 (no data)" in capsys.readouterr().out
+
+
+def test_today_follows_the_configured_zone_not_the_machines(monkeypatch):
+    """Tipoffs are converted to the configured zone, so the day boundary has to use it
+    too, or a late game lands on the wrong side of 'today'."""
+    monkeypatch.delenv("NBA_FAKE_TODAY", raising=False)
+    try:
+        for name in ("Pacific/Kiritimati", "Pacific/Niue", "America/Chicago"):
+            zone = ZoneInfo(name)
+            nba.set_zone(zone)
+            assert nba.today() == datetime.now(zone).date()
+        nba.set_zone(ZoneInfo("Pacific/Kiritimati"))      # UTC+14
+        ahead = nba.today()
+        nba.set_zone(ZoneInfo("Pacific/Niue"))            # UTC-11
+        assert ahead > nba.today()
+    finally:
+        nba.set_zone(CENTRAL)
+
+
+def test_fake_today_still_wins_over_the_zone(monkeypatch):
+    monkeypatch.setenv("NBA_FAKE_TODAY", "2026-10-25")
+    nba.set_zone(ZoneInfo("Pacific/Kiritimati"))
+    try:
+        assert nba.today() == date(2026, 10, 25)
+    finally:
+        nba.set_zone(CENTRAL)
 
 
 # --- config -----------------------------------------------------------------------------

@@ -131,6 +131,14 @@ LEADER_CATEGORY_NAMES = {
     "PER": "PER",
 }
 
+# The overview endpoint labels its averages (GP MIN FG% 3P% FT% REB AST BLK STL PF TO PTS)
+# differently from the leaders endpoint, so the tracked-player row printed under a top ten
+# has to translate. 3PM and PER have no overview label at all, so they get no row.
+LEADER_AVERAGE_LABELS = {
+    "PTS": "PTS", "AST": "AST", "REB": "REB", "STL": "STL", "BLK": "BLK",
+    "FG%": "FG%", "3P%": "3P%", "FT%": "FT%", "MPG": "MIN",
+}
+
 # --- PRESENTATION --------------------------------------------------------------------
 
 # "SFMono-Regular" silently falls back to the proportional system font; Menlo does not.
@@ -141,6 +149,9 @@ HEADER_FONT = "font=SF Pro Display size=13"
 # accessible variants, readable on the pale menu background. Secondary text is left
 # uncolored so it follows the system label color, which tracks the menu's appearance.
 DIMMED = ""
+# Rows that are genuinely de-emphasized rather than merely secondary — a game already in
+# the books, a seed below the play-in — need a real color, since DIMMED is a no-op.
+MUTED = "color=#8A8A8E,#7C7C80"
 ACCENT_GREEN = "color=#1F7A35,#34C759"
 ACCENT_RED = "color=#C4000F,#FF3B30"
 ACCENT_ORANGE = "color=#B33000,#FF9500"
@@ -282,15 +293,26 @@ def local_zone(cfg: dict) -> ZoneInfo:
         return ZoneInfo("America/Chicago")
 
 
+_ZONE: Optional[ZoneInfo] = None
+
+
+def set_zone(tz: ZoneInfo) -> None:
+    """Pin the day boundary to the configured zone. Every tipoff is converted to it, so
+    without this the machine's zone would decide which of them counts as 'today'."""
+    global _ZONE
+    _ZONE = tz
+
+
 def today() -> date:
-    """Today, or NBA_FAKE_TODAY when set, so layouts can be tested on any day."""
+    """Today in the configured zone, or NBA_FAKE_TODAY when set, so layouts can be
+    tested on any day."""
     fake = os.environ.get("NBA_FAKE_TODAY")
     if fake:
         try:
             return date.fromisoformat(fake)
         except ValueError:
             pass
-    return date.today()
+    return datetime.now(_ZONE).date()
 
 
 def parse_iso(value: str, tz: ZoneInfo) -> Optional[datetime]:
@@ -392,7 +414,10 @@ def load_cache(tz: ZoneInfo) -> tuple[Optional[Bundle], Optional[datetime]]:
     try:
         payload = json.loads(CACHE_FILE.read_text())
         stamp = datetime.fromisoformat(payload["timestamp"])
-        if datetime.now() - stamp > timedelta(days=CACHE_MAX_AGE_DAYS):
+        if stamp.tzinfo is None:                  # a stamp written before they were zoned
+            stamp = stamp.astimezone()
+        stamp = stamp.astimezone(tz)
+        if datetime.now(tz) - stamp > timedelta(days=CACHE_MAX_AGE_DAYS):
             return None, None
         return bundle_from_dict(payload["data"], tz), stamp
     except Exception:
@@ -400,13 +425,23 @@ def load_cache(tz: ZoneInfo) -> tuple[Optional[Bundle], Optional[datetime]]:
 
 
 def save_cache(fresh: Bundle, previous: Optional[Bundle]) -> None:
-    """Only sections that came back clean overwrite the cache; the rest keep their copy."""
+    """Only sections that came back clean overwrite the cache; the rest keep their copy.
+    A clean fetch that returned nothing still overwrites: an empty slate on an off day is
+    the truth, and keeping the previous one would leave yesterday's finals in the cache
+    waiting to be shown as today's. Sections where empty means broken (standings, leaders)
+    are already recorded as errors by gather_all, so they are protected by that."""
     try:
         merged = bundle_to_dict(previous) if previous else bundle_to_dict(Bundle())
         new = bundle_to_dict(fresh)
-        for section in ("games", "standings", "leaders", "schedules"):
-            if section not in fresh.errors and new[section]:
+        for section in ("games", "standings", "leaders"):
+            if section not in fresh.errors:
                 merged[section] = new[section]
+        if "schedules" not in fresh.errors:
+            # Merged per team, so one team's failed schedule keeps its last good copy
+            # instead of being dropped along with the others' fresh ones.
+            schedules = dict(merged.get("schedules") or {})
+            schedules.update(new["schedules"])
+            merged["schedules"] = schedules
         if "players" not in fresh.errors:
             by_id = {p["pid"]: p for p in merged.get("players", [])}
             for p in fresh.players:
@@ -414,19 +449,30 @@ def save_cache(fresh: Bundle, previous: Optional[Bundle]) -> None:
                     by_id[p.pid] = _player_to_dict(p)
             merged["players"] = list(by_id.values())
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        CACHE_FILE.write_text(json.dumps({"timestamp": datetime.now().isoformat(), "data": merged}))
+        CACHE_FILE.write_text(json.dumps(
+            {"timestamp": datetime.now(_ZONE).isoformat(), "data": merged}))
     except Exception:
         pass
 
 
-def apply_cache(fresh: Bundle, cached: Optional[Bundle]) -> Bundle:
-    """Substitute the last good copy of any section whose fetch failed, marked stale."""
+def apply_cache(fresh: Bundle, cached: Optional[Bundle],
+                stamp: Optional[datetime] = None) -> Bundle:
+    """Substitute the last good copy of any section whose fetch failed, marked stale.
+
+    Standings, leaders and schedules stay useful for days. The slate does not: it is only
+    the slate of the day it was fetched, and ESPN's own 'today' holds games that tipped
+    the previous evening locally, so the fetch time — not the tipoffs — is what dates it.
+    An unknown fetch time means the slate is not trusted."""
     if not cached:
         return fresh
+    slate_is_today = stamp is not None and stamp.date() == today()
     for section in ("games", "standings", "leaders", "schedules"):
-        if section in fresh.errors and getattr(cached, section):
-            setattr(fresh, section, getattr(cached, section))
-            fresh.stale.append(section)
+        if section not in fresh.errors or not getattr(cached, section):
+            continue
+        if section == "games" and not slate_is_today:
+            continue
+        setattr(fresh, section, getattr(cached, section))
+        fresh.stale.append(section)
     by_id = {p.pid: p for p in cached.players}
     for i, p in enumerate(fresh.players):
         if not p.healthy and p.pid in by_id:
@@ -543,12 +589,20 @@ def _competition_game(event: dict, comp: dict, tz: ZoneInfo, tv_from: str) -> Op
         return sides[side].get("team") or {}
 
     def record_of(side: str) -> Optional[str]:
-        for r in sides[side].get("records") or []:
-            # The first record is overall; 'total'/'overall' name it when present.
+        # The scoreboard sends records[].summary; a team schedule sends record[].displayValue.
+        recs = sides[side].get("records") or sides[side].get("record") or []
+        if not isinstance(recs, list):
+            return None
+
+        def summary(r: dict) -> Optional[str]:
+            return r.get("summary") or r.get("displayValue")
+
+        for r in recs:
+            # 'total'/'overall' names the overall record when present; otherwise it is first.
             if r.get("type") in (None, "total", "overall") or r.get("name") in ("overall", "All Splits"):
-                return r.get("summary")
-        recs = sides[side].get("records") or []
-        return recs[0].get("summary") if recs else None
+                if summary(r):
+                    return summary(r)
+        return summary(recs[0]) if recs else None
 
     status = comp.get("status") or event.get("status") or {}
     state, detail = _status_detail(status, tipoff)
@@ -897,6 +951,11 @@ async def gather_all(cfg: dict, tz: ZoneInfo) -> Bundle:
                     bundle.schedules[r[0]] = r[1]
             if failed and not bundle.schedules:
                 bundle.errors["schedules"] = f"{len(failed)} team schedule(s) failed"
+        elif any(not p.healthy for p in bundle.players) or "players" in bundle.errors:
+            # Teams are derived from the players, so when every player lookup fails there
+            # is nothing left to fetch. Recording it is what lets the cached schedules —
+            # and with them NEXT UP and the in-season/off-season decision — come back.
+            bundle.errors["schedules"] = "no tracked teams (player lookup failed)"
     return bundle
 
 
@@ -935,6 +994,28 @@ def head_to_head(schedules: dict[str, list[Game]], team_ids: set[str]) -> Option
                 if best is None or g.tipoff < best.tipoff:
                     best = g
     return best
+
+
+def made_per_game(log: list[PlayerGame], label: str) -> Optional[str]:
+    """Average makes from a 'made-attempted' log column such as 3PT's '1-4'."""
+    made = []
+    for g in log:
+        try:
+            made.append(float((g.stats.get(label) or "").split("-")[0].strip()))
+        except ValueError:
+            continue
+    return f"{sum(made) / len(made):.1f}" if made else None
+
+
+def average_for(p: Player, cat: str) -> Optional[str]:
+    """The player's own number for a leaders category, so the row under a top ten can be
+    compared with it. PER has no source here, so that category simply gets no row."""
+    label = LEADER_AVERAGE_LABELS.get(cat)
+    if label:
+        return p.averages.get(label)
+    if cat == "3PM":
+        return made_per_game(p.log, "3PT")
+    return None
 
 
 def season_highs(log: list[PlayerGame]) -> dict[str, float]:
@@ -990,7 +1071,8 @@ def scrub(text: Any) -> str:
 
 def slate_row(mark: str, away: str, a_rec: str, sep: str, home: str, h_rec: str,
               status: str, tv: str) -> str:
-    return (f"{mark} {away:<4} {a_rec:>5} {sep} {home:<4} {h_rec:>5}  "
+    # Six wide because the numeric column's header is "REC/SC" on a mixed slate.
+    return (f"{mark} {away:<4} {a_rec:>6} {sep} {home:<4} {h_rec:>6}  "
             f"{status:<9}  {tv}").rstrip()
 
 
@@ -1061,12 +1143,14 @@ def print_slate(games: list[Game], tracked: set[str], stale: bool) -> None:
     if not games:
         line("No games scheduled", 0, DIMMED, LABEL_COLOR)
         return
-    scored = any(g.state != "pre" for g in games)
-    line(slate_row(" ", "AWAY", "SCORE" if scored else "REC", " ", "HOME",
-                   "SCORE" if scored else "REC", "STATUS", "TV"),
+    # Each row's numeric column is a record before tip and the score after, so on a slate
+    # that is part finished and part still to come the header has to say both.
+    tipped = sum(1 for g in games if g.state != "pre")
+    column = "REC" if not tipped else "SCORE" if tipped == len(games) else "REC/SC"
+    line(slate_row(" ", "AWAY", column, " ", "HOME", column, "STATUS", "TV"),
          0, TABLE_BOLD, LABEL_COLOR)
     for g in games:
-        style = ACCENT_ORANGE if g.state == "in" else (DIMMED if g.state == "post" else "")
+        style = ACCENT_ORANGE if g.state == "in" else (MUTED if g.state == "post" else "")
         if g.involves(tracked) and g.state != "in":
             style = ACCENT_BLUE
         text = game_row(g, tracked)
@@ -1168,7 +1252,7 @@ def print_leaders(bundle: Bundle, cfg: dict) -> None:
         ranked = {e.athlete_id for e in entries}
         for p in bundle.players:
             if p.healthy and p.pid not in ranked:
-                value = p.averages.get(cat)
+                value = average_for(p, cat)
                 if value:
                     line(leader_row(TRACKED_MARK, "—", p.name, p.team_abbr, value)
                          + f"  outside top {len(entries)}", 1, TABLE, DIMMED, LABEL_COLOR)
@@ -1195,7 +1279,7 @@ def print_standings(bundle: Bundle, tracked: set[str]) -> None:
             row = standings_row(mark, str(t.seed or "—"), t.abbr, t.record,
                                 str(t.games_behind), t.streak or "—", t.last_ten or "—")
             # The play-in line: seeds 11 and below are dimmed, 7-10 stay readable.
-            style = ACCENT_BLUE if t.team_id in tracked else (DIMMED if (t.seed or 99) > 10 else "")
+            style = ACCENT_BLUE if t.team_id in tracked else (MUTED if (t.seed or 99) > 10 else "")
             line(row, 1, TABLE, style,
                  f"href=https://www.espn.com/nba/team/_/name/{t.abbr.lower()}")
 
@@ -1231,11 +1315,19 @@ def print_openers(bundle: Bundle, first: Optional[date]) -> None:
         print(calendar_line(g, 0, f"{g.tipoff:%b %d} {g.matchup}", f" {TABLE}"))
 
 
+def section_is_cached(bundle: Bundle, section: str) -> bool:
+    """apply_cache marks substituted players one by one ('player LeBron James'), never
+    under the section key, so the players row has to look for either."""
+    if section in bundle.stale:
+        return True
+    return section == "players" and any(s.startswith("player ") for s in bundle.stale)
+
+
 def print_footer(bundle: Bundle) -> None:
     separator()
     if bundle.errors:
         for section, why in bundle.errors.items():
-            shown = "showing cached" if section in bundle.stale else "no data"
+            shown = "showing cached" if section_is_cached(bundle, section) else "no data"
             line(f"{section}: {why} ({shown})", 0, "size=11", ACCENT_RED)
     stale_players = [s for s in bundle.stale if s.startswith("player ")]
     for s in stale_players:
@@ -1251,10 +1343,11 @@ def print_footer(bundle: Bundle) -> None:
 async def run_menu() -> None:
     cfg = load_config()
     tz = local_zone(cfg)
-    cached, _ = load_cache(tz)
+    set_zone(tz)
+    cached, stamp = load_cache(tz)
     bundle = await gather_all(cfg, tz)
     save_cache(bundle, cached)
-    bundle = apply_cache(bundle, cached)
+    bundle = apply_cache(bundle, cached, stamp)
 
     tracked = tracked_team_ids(bundle.players, cfg)
     state, first = season_state(bundle)
@@ -1281,6 +1374,7 @@ async def run_check() -> int:
     """One line per source with what was seen and parsed; exit 1 on any failure."""
     cfg = load_config()
     tz = local_zone(cfg)
+    set_zone(tz)
     failures = 0
     leader_cats = list(dict.fromkeys(
         (cfg.get("leader_categories") or []) + (cfg.get("more_leader_categories") or [])))
