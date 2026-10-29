@@ -154,6 +154,20 @@ def test_region24_standings():
     assert recs["Vincennes University"] == "12-21"
 
 
+def test_region24_d1_teams_skip_division_ii():
+    url = "https://www.njcaaregion24.com/sports/mbkb/2025-26/standings"
+    teams = bb.parse_region24_d1_teams(read("region24_standings.html"), url)
+    assert list(teams) == ["John A. Logan College", "Southwestern Illinois College", "Vincennes University"]
+    assert teams["John A. Logan College"] == "https://www.njcaaregion24.com/sports/mbkb/2025-26/schedule?teamId=b5turu8rtzjiz2ny"
+
+
+def test_poll_rank_ignores_punctuation():
+    ranks = {"John A Logan College": 19, "Vincennes University": 9}
+    assert bb.poll_rank("John A. Logan College", ranks) == 19
+    assert bb.poll_rank("Southwestern Illinois College", ranks) is None
+    assert bb.rival_name("John A. Logan College") == "John A. Logan"
+
+
 # --- SWIC / Vincennes ------------------------------------------------------------------
 
 def test_swic_schedule():
@@ -181,6 +195,29 @@ def test_vincennes_schedule_dedupes_next_event_card_and_converts_eastern():
     daytona = next(g for g in s.schedule if g.opponent.startswith("Daytona"))
     assert daytona.date.date() == date(2025, 10, 24)
     assert daytona.tipoff_time == datetime(2025, 10, 24, 14, 45)   # 3:45 PM Eastern -> Central
+
+
+def test_region24_team_page_reads_central_time():
+    url = "https://www.njcaaregion24.com/sports/mbkb/2025-26/schedule?teamId=5cn1oho9oci74170"
+    s = bb.parse_vincennes_schedule(read("vincennes_schedule.html"), url, key="r24:X", name="X", tz=bb.CENTRAL)
+    daytona = next(g for g in s.schedule if g.opponent.startswith("Daytona"))
+    assert s.key == "r24:X" and daytona.tipoff_time == datetime(2025, 10, 24, 15, 45)
+
+
+def test_rival_games_say_at_and_skip_calendar(capsys):
+    s = bb.School(key="vincennes", url="u", name="Vincennes")
+    bb.print_game_line(bb.Game(date=datetime(2026, 1, 20), home_away="Away", opponent="Lake Land"), s, 2, rival=True)
+    out = capsys.readouterr().out
+    assert out.startswith("--TUE: at Lake Land (TBD)") and "Add to Calendar" not in out
+
+
+def test_rival_final_today_is_a_result_and_next_game_follows(capsys):
+    final = bb.Game(date=datetime(2026, 1, 15), home_away="Home", opponent="Olney", result="W", score="80-70")
+    nxt = bb.Game(date=datetime(2026, 1, 17), home_away="Away", opponent="Lake Land")
+    bb.print_rivals([bb.School(key="vincennes", url="u", name="Vincennes", schedule=[final, nxt])], "in",
+                    {"max_past_games": 2})
+    out = capsys.readouterr().out
+    assert "--✅ Jan 15: vs Olney (W) 80-70" in out and "--SAT: at Lake Land (TBD)" in out
 
 
 # --- Sidearm (D2 / D3 / NAIA) -----------------------------------------------------------
