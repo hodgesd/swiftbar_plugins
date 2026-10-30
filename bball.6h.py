@@ -9,7 +9,7 @@
 # ///
 
 # <swiftbar.title>Local Basketball</swiftbar.title>
-# <swiftbar.version>v4.3</swiftbar.version>
+# <swiftbar.version>v4.4</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Home games, records and rankings for local high school, JUCO, D1, D2, D3 and NAIA basketball. Teams configurable via ~/.config/swiftbar-plugins/bball.json</swiftbar.desc>
@@ -29,6 +29,9 @@ Sources
   Division I        ESPN site API (schedule, record, AP rank) + NCAA NET rankings page
   SWIC              swic.edu schedule table; record from the NJCAA Region 24 standings
   Vincennes         govutrailblazers.com schedule; record from Region 24 standings
+  Region 24 rivals  Vincennes plus any other Region 24 Division I team (SWIC's conference) in
+                    the NJCAA DI poll; schedules from the Region 24 site's team pages. Watched
+                    for rank and results only: their games never reach NEXT UP or the title
   D2 / D3 / NAIA    each school's own Sidearm athletics site (schedule page rows and the
                     "Overall" record in its header); ESPN does not carry these teams
   NJCAA DI poll     NJCAA public GraphQL API (publishedPolls)
@@ -88,6 +91,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         {"espn_id": 356, "net_name": "Illinois"},
         {"espn_id": 2815, "net_name": "Lindenwood"},
     ],
+    # Vincennes is not local: it is watched in REGION 24 RIVALS for its rank and results.
     "community_colleges": {"swic": True, "vincennes": True},
     # Any school whose athletics site runs on Sidearm (the schedule lives at
     # <base>/sports/mens-basketball/schedule/<season>). "level" is the tag shown in the menu.
@@ -130,6 +134,7 @@ NJCAA_GENDER_ID = "1"  # men
 NJCAA_RANKINGS_PAGE = "https://www.njcaa.org/sports/rankings?sport=mbkb"
 
 REGION24_NAMES = {"swic": "Southwestern Illinois College", "vincennes": "Vincennes University"}
+REGION24_D1_HEADING = "Division I"   # the standings table for SWIC's conference
 # Sites publish venue-local times; everything is converted to this Mac's time zone.
 EASTERN = ZoneInfo("America/New_York")
 CENTRAL = ZoneInfo("America/Chicago")          # MaxPreps (IL/MO schools) and SWIC
@@ -769,6 +774,17 @@ def parse_njcaa_polls(data: dict, division: str = "d1") -> tuple[dict[str, int],
     return ranks, poll["publication"].get("title")
 
 
+def _team_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def poll_rank(team: str, ranks: dict[str, int]) -> Optional[int]:
+    """The poll and the Region 24 site spell some names differently ("John A Logan College"
+    vs "John A. Logan College"), so match on letters and digits only."""
+    key = _team_key(team)
+    return next((r for n, r in ranks.items() if _team_key(n) == key), None)
+
+
 async def fetch_njcaa_rankings(session: aiohttp.ClientSession) -> tuple[dict[str, int], Optional[str]]:
     seasons, err = await fetch(session, NJCAA_GRAPHQL_URL, json_body={"query": NJCAA_SEASONS_QUERY}, want_json=True)
     if err:
@@ -808,12 +824,29 @@ def parse_region24_standings(html: str) -> dict[str, str]:
     return out
 
 
-async def fetch_region24_records(session: aiohttp.ClientSession, slug: Optional[str] = None) -> tuple[dict[str, str], Optional[str]]:
-    html, err = await fetch(session, REGION24_STANDINGS_URL.format(season=slug or season_slug()))
+def parse_region24_d1_teams(html: str, standings_url: str) -> dict[str, str]:
+    """{team name: Region 24 schedule URL} for the Division I table (SWIC's conference)."""
+    soup = soup_of(html)
+    heading = next((h for h in soup.find_all(["h2", "h3", "h4"])
+                    if h.get_text(strip=True) == REGION24_D1_HEADING), None)
+    table = heading.find_next("table") if heading else None
+    out: dict[str, str] = {}
+    for a in (table.select("tr a[href*='teamId=']") if table else []):
+        name = a.get_text(" ", strip=True)
+        if name:
+            out[name] = urljoin(standings_url, a["href"])
+    return out
+
+
+async def fetch_region24(session: aiohttp.ClientSession, slug: Optional[str] = None
+                         ) -> tuple[dict[str, str], dict[str, str], Optional[str]]:
+    """({team: record}, {Division I team: schedule URL}, error)."""
+    url = REGION24_STANDINGS_URL.format(season=slug or season_slug())
+    html, err = await fetch(session, url)
     if err:
-        return {}, f"Region 24: {err}"
+        return {}, {}, f"Region 24: {err}"
     records = parse_region24_standings(html)
-    return records, (None if records else "Region 24: no standings table")
+    return records, parse_region24_d1_teams(html, url), (None if records else "Region 24: no standings table")
 
 
 # --- SWIC ----------------------------------------------------------------------------
@@ -890,8 +923,11 @@ MONTHS.update({k[:3]: v for k, v in list(MONTHS.items())})
 MONTHS["Sept"] = 9
 
 
-def parse_vincennes_schedule(html: str, schedule_url: str) -> School:
-    school = School(key="vincennes", url=schedule_url, name="Vincennes")
+def parse_vincennes_schedule(html: str, schedule_url: str, key: str = "vincennes", name: str = "Vincennes",
+                             tz: ZoneInfo = VINCENNES_TZ) -> School:
+    """PrestoSports schedule page: govutrailblazers.com and the Region 24 site's team pages.
+    `tz` is the zone the page prints tipoffs in (Vincennes: Eastern, Region 24: Central)."""
+    school = School(key=key, url=schedule_url, name=name)
     soup = soup_of(html)
     games: list[Game] = []
     seen_keys: set[tuple] = set()
@@ -939,8 +975,8 @@ def parse_vincennes_schedule(html: str, schedule_url: str) -> School:
             tm = re.search(r"\b((?:[1-9]|1[0-2]):\d{2}\s*[AP]M)\b", dateinfo_txt, re.I)
             if tm:
                 t = parse_tipoff_time(tm.group(1))
-                if t:  # the site shows venue time (Eastern); convert to ours
-                    tipoff = at_time(game_day, t, VINCENNES_TZ)
+                if t:  # the page's own zone; convert to ours
+                    tipoff = at_time(game_day, t, tz)
         games.append(Game(
             date=datetime.combine(game_day, datetime.min.time()),
             home_away=ha,
@@ -965,6 +1001,27 @@ async def process_vincennes(session: aiohttp.ClientSession) -> School:
         school = parse_vincennes_schedule(html, url)
     except Exception as e:
         return School(key="vincennes", url=url, name="Vincennes", fetch_error=f"parse error: {type(e).__name__}")
+    if school.healthy:
+        school.last_successful_update = datetime.now()
+    return school
+
+
+# --- REGION 24 RIVALS ----------------------------------------------------------------
+
+def rival_name(team: str) -> str:
+    """'John A. Logan College' -> 'John A. Logan'."""
+    return re.sub(r"\s+(Community College|College|University)$", "", team)
+
+
+async def process_region24_team(session: aiohttp.ClientSession, team: str, url: str) -> School:
+    key, name = f"r24:{team}", rival_name(team)
+    html, err = await fetch(session, url)
+    if err:
+        return School(key=key, url=url, name=name, fetch_error=f"schedule: {err}")
+    try:
+        school = parse_vincennes_schedule(html, url, key=key, name=name, tz=CENTRAL)
+    except Exception as e:
+        return School(key=key, url=url, name=name, fetch_error=f"parse error: {type(e).__name__}")
     if school.healthy:
         school.last_successful_update = datetime.now()
     return school
@@ -1203,22 +1260,27 @@ def calendar_line(g: Game, school_name: str, depth: int, label: str, style: str 
             f"sfimage=calendar.badge.plus alternate=true terminal=false{style}")
 
 
-def print_game_line(g: Game, s: School, depth: int) -> None:
+def print_game_line(g: Game, s: School, depth: int, rival: bool = False) -> None:
+    """A rival's games include away games, so they say "vs"/"at" and get no calendar line."""
     t = today()
     prefix = "-" * depth
-    if g.date.date() < t:
+    label = game_label(g)
+    if rival:
+        label = f"{'at' if g.home_away == 'Away' else 'vs'} {label}"
+    if g.date.date() < t or (rival and g.result):   # a rival's final from today is a result
         emoji = "✅" if g.result == "W" else "❌" if g.result == "L" else "📊"
         res = f" ({g.result})" if g.result else ""
         score = f" {g.score}" if g.score else ""
-        print(f'{prefix}{emoji} {g.date:%b %d}: {game_label(g)}{res}{score} | href={g.game_url or s.url} size=11 color={COLOR_MUTED}')
+        print(f'{prefix}{emoji} {g.date:%b %d}: {label}{res}{score} | href={g.game_url or s.url} size=11 color={COLOR_MUTED}')
         return
     when = f"@ {g.tipoff_time:%H%M}" if g.tipoff_time else "(TBD)"
-    msg = f"{format_relative_date(g.date)}: {game_label(g)} {when}"
+    msg = f"{format_relative_date(g.date)}: {label} {when}"
     is_today = g.date.date() == t
     md = f"**{msg}**" if is_today else msg
     color = f" color={COLOR_TODAY}" if is_today else ""
     print(f'{prefix}{md} | href={g.game_url or s.url} md=true{color}')
-    print(calendar_line(g, s.name or "", depth, md, f" md=true{color}"))
+    if not rival:
+        print(calendar_line(g, s.name or "", depth, md, f" md=true{color}"))
 
 
 def print_section(schools: list[School], rank_scope: str, header: str, state: str, cfg: dict) -> None:
@@ -1241,6 +1303,22 @@ def print_section(schools: list[School], rank_scope: str, header: str, state: st
             print(f"--Last home games | size=11 color=#666666")
         for g in recent + upcoming:
             print_game_line(g, s, 2)
+
+
+def print_rivals(schools: list[School], state: str, cfg: dict) -> None:
+    """Teams watched for rank and form, not visited: last results and the next game."""
+    if not schools:
+        return
+    print("---")
+    print(f"REGION 24 RIVALS | size=13 color={COLOR_MUTED}")
+    t = today()
+    for s in sort_schools(schools):
+        print(f'{school_line(s, "", state)} | href={s.url} font=Menlo-Bold tooltip="{school_tooltip(s, "")}"')
+        games = sorted(s.schedule, key=lambda g: g.date)
+        done = [g for g in games if g.date.date() < t or g.result]
+        ahead = [g for g in games if g not in done]
+        for g in done[-cfg["max_past_games"]:] + ahead[:1]:
+            print_game_line(g, s, 2, rival=True)
 
 
 def short_name(s: School) -> str:
@@ -1352,14 +1430,14 @@ async def gather_all(cfg: dict) -> tuple[dict[str, list[School]], list[str]]:
         if cc_cfg.get("vincennes", True):
             cc_tasks.append(process_vincennes(session))
         small_tasks = [process_small_college(session, e, cfg) for e in small_cfg]
-        hs, d1, cc, small, (net, net_note), (njcaa, njcaa_note), (records, rec_note) = await asyncio.gather(
+        hs, d1, cc, small, (net, net_note), (njcaa, njcaa_note), (records, d1_teams, rec_note) = await asyncio.gather(
             asyncio.gather(*hs_tasks, return_exceptions=True),
             asyncio.gather(*d1_tasks, return_exceptions=True),
             asyncio.gather(*cc_tasks, return_exceptions=True),
             asyncio.gather(*small_tasks, return_exceptions=True),
             fetch_net_rankings(session),
             fetch_njcaa_rankings(session),
-            fetch_region24_records(session),
+            fetch_region24(session),
         )
 
         def ok(results, keys):
@@ -1373,20 +1451,31 @@ async def gather_all(cfg: dict) -> tuple[dict[str, list[School]], list[str]]:
         cc = ok(cc, [k for k in ("swic", "vincennes") if cc_cfg.get(k, True)])
         small = ok(small, [small_college_key(e) for e in small_cfg])
 
+        # Vincennes and any other nationally ranked team in SWIC's conference are watched,
+        # not visited: they get their own section and stay out of NEXT UP and the title.
+        fetched = {REGION24_NAMES[s.key] for s in cc}
+        rivals = [s for s in cc if s.key == "vincennes"]
+        cc = [s for s in cc if s.key != "vincennes"]
+        rivals += await asyncio.gather(*(process_region24_team(session, team, url) for team, url in d1_teams.items()
+                                         if team not in fetched and poll_rank(team, njcaa)))
+
+        def region24_team(s: School) -> str:
+            return REGION24_NAMES.get(s.key) or s.key.removeprefix("r24:")
+
         for s, c in zip(d1, cfg["colleges"]):
             s.net_rank = net_rank_for(c.get("net_name"), net)
-        for s in cc:
-            s.ranking = njcaa.get(REGION24_NAMES.get(s.key, ""))
-            s.record = records.get(REGION24_NAMES.get(s.key, ""))
+        for s in cc + rivals:
+            s.ranking = poll_rank(region24_team(s), njcaa)
+            s.record = records.get(region24_team(s))
         for n in (net_note, njcaa_note, rec_note):
             if n:
                 notes.append(n)
 
         state, _ = season_state(hs + d1 + cc + small)
         if state == "pre":
-            last_records, _ = await fetch_region24_records(session, season_slug(season_start_year() - 1))
-            for s in cc:
-                s.last_season_record = last_records.get(REGION24_NAMES.get(s.key, ""))
+            last_records, _, _ = await fetch_region24(session, season_slug(season_start_year() - 1))
+            for s in cc + rivals:
+                s.last_season_record = last_records.get(region24_team(s))
             finals = await asyncio.gather(*(fetch_espn_last_season_record(session, c["espn_id"]) for c in cfg["colleges"]))
             for s, rec in zip(d1, finals):
                 s.last_season_record = rec
@@ -1400,6 +1489,7 @@ async def gather_all(cfg: dict) -> tuple[dict[str, list[School]], list[str]]:
         "cc": cc,
         "d1": d1,
         "small": small,
+        "rivals": rivals,
     }
     return sections, notes
 
@@ -1413,21 +1503,23 @@ async def run_menu() -> None:
     for name, group in sections.items():
         sections[name] = [apply_cache(s, cached) for s in group]
     all_schools = [s for group in sections.values() for s in group]
+    local = [s for name, group in sections.items() if name != "rivals" for s in group]
 
-    state, first_game = season_state(all_schools)
+    state, first_game = season_state(local)
 
-    print_title(all_schools, state, first_game)
+    print_title(local, state, first_game)
     if state == "in":
-        print_next_up(all_schools, cfg["next_up_count"])
+        print_next_up(local, cfg["next_up_count"])
     else:
-        print_openers(all_schools, first_game)
+        print_openers(local, first_game)
     print_section(sections["il"], "IL", "ILLINOIS HIGH SCHOOLS", state, cfg)
     print_section(sections["mo"], "MO", "MISSOURI HIGH SCHOOLS", state, cfg)
     print_section(sections["cc"], "", "COMMUNITY COLLEGE", state, cfg)
     print_section(sections["d1"], "", "DIVISION I", state, cfg)
     print_section(sections["small"], "", "DIVISION II · III · NAIA", state, cfg)
+    print_rivals(sections["rivals"], state, cfg)
     problems = [f"⚠️ {s.name or s.key}: {s.fetch_error}" for s in all_schools if s.fetch_error]
-    has_upcoming = any(g.date.date() >= today() for s in all_schools for g in listed_games(s))
+    has_upcoming = any(g.date.date() >= today() for s in local for g in listed_games(s))
     print_footer(problems + notes, calendar_hint=has_upcoming)
 
 
@@ -1447,7 +1539,7 @@ async def run_check() -> int:
             failures += bool(s.warning)
     for n in notes:
         print(f"NOTE   {n}")
-    state, first_game = season_state([s for g in sections.values() for s in g])
+    state, first_game = season_state([s for name, g in sections.items() if name != "rivals" for s in g])
     print(f"season state: {state}" + (f", first game {first_game}" if first_game else ""))
     return 1 if failures else 0
 

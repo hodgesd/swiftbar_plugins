@@ -83,6 +83,7 @@ Filenames use format: `name.{interval}.py` where interval is:
 
 **bball.6h.py**: Local basketball schedules (MaxPreps, ESPN API, SWIC, Vincennes, NJCAA GraphQL, Sidearm school sites)
 - D2 / D3 / NAIA schools come from their own Sidearm athletics sites via `parse_sidearm_schedule`; add one with a `small_colleges` entry (`name`, `level`, `base`)
+- REGION 24 RIVALS: Vincennes plus any other Region 24 Division I team (SWIC's conference) in the NJCAA DI poll, watched for rank, record and recent results only. Their games never reach NEXT UP, the openers, the season state or the title count. Extra ranked teams come from the standings page's Division I table links (`?teamId=`), whose schedule pages parse with `parse_vincennes_schedule` in Central time; poll and standings names are matched by `poll_rank` (punctuation differs)
 - Pure `parse_*` functions per source, tested in `tests/test_bball_parsers.py` against trimmed fixtures
 - `./bball.6h.py --check` prints rows seen / games parsed per source and exits 1 on any failure; run it before the season
 - Teams in `~/.config/swiftbar-plugins/bball.json` (defaults in `DEFAULT_CONFIG`); last-good cache in `~/.cache/swiftbar-plugins/`
