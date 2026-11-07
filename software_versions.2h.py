@@ -5,7 +5,7 @@
 # ///
 
 # <swiftbar.title>Software Versions</swiftbar.title>
-# <swiftbar.version>v1.2</swiftbar.version>
+# <swiftbar.version>v1.3</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Current versions of tracked apps, read from a self-hosted changedetection.io (watches tagged "software"). Configure via ~/.config/swiftbar-plugins/software_versions.json</swiftbar.desc>
@@ -15,7 +15,10 @@
 # <swiftbar.hideLastUpdated>false</swiftbar.hideLastUpdated>
 # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
-# <swiftbar.environment>[SOFTWARE_VERSIONS_BASE_URL:, SOFTWARE_VERSIONS_TAG:software]</swiftbar.environment>
+# Defaults left blank on purpose: SwiftBar exports every variable listed here
+# with its default on every run, so a default of "software" would override
+# the config file's "tag".
+# <swiftbar.environment>[SOFTWARE_VERSIONS_BASE_URL:, SOFTWARE_VERSIONS_TAG:]</swiftbar.environment>
 
 """
 Software Versions — SwiftBar Plugin
@@ -39,7 +42,6 @@ SETUP
      {
        "base_url": "https://changes.example.ts.net",
        "tag": "software",
-       "recent_days": 14,
        "update_titles": true,
        "keychain_service": "changedetection.io",
        "keychain_account": "api"
@@ -245,7 +247,6 @@ def load_config() -> dict:
                 "  {",
                 '    "base_url": "https://changes.example.ts.net",',
                 '    "tag": "software",',
-                '    "recent_days": 14,',
                 '    "update_titles": true,',
                 '    "keychain_service": "changedetection.io",',
                 '    "keychain_account": "api"',
@@ -257,7 +258,6 @@ def load_config() -> dict:
     return {
         "base_url": base_url,
         "tag": tag,
-        "recent_days": int(cfg.get("recent_days", 14)),
         "update_titles": bool(cfg.get("update_titles", True)),
         "alert_template": bool(cfg.get("alert_template", True)),
         "keychain_service": str(cfg.get("keychain_service", "changedetection.io")),
@@ -434,7 +434,7 @@ class Client:
 # sync so software alerts read "<name>: <new>" / "<old> → <new>" and link to
 # the same release-notes page as the menu.
 
-# First version-looking line of a snapshot, falling back to the first
+# First version-looking word of a snapshot, falling back to the first
 # non-bracket line (JSON list filters start with "["). The version test exists
 # because some release feeds lead with a rolling tag rather than a version:
 # Karabiner-Elements' releases list starts with a literal "beta" and ghostty's
@@ -442,12 +442,15 @@ class Client:
 # beta" when a new beta was published. The fallback keeps watches with no
 # version at all (price pages, ghostty) behaving as they did before.
 #
-# The test is a regex_replace that blanks a whole version-looking token, so an
-# empty result means "this line is a version". Two constraints on the pattern:
-# changedetection rejects nested quantifiers such as (\.[0-9]+)+ as a ReDoS
-# risk and then returns the value UNCHANGED, which would silently fail every
-# line; and [.] avoids asking how backslashes survive a Jinja string literal.
-# Requiring digit-dot-digit matches VERSION_RE's own floor.
+# Each line is tested word by word, mirroring parse_version(), which finds the
+# version anywhere in the line: a Sparkle title such as "Thaw 1.2.3" must alert
+# as "Thaw: 1.2.3", not "Thaw: Thaw 1.2.3". The test is a regex_replace that
+# blanks a whole version-looking token, so an empty result means "this word is
+# a version". Two constraints on the pattern: changedetection rejects nested
+# quantifiers such as (\.[0-9]+)+ as a ReDoS risk and then returns the value
+# UNCHANGED, which would silently fail every line; and [.] avoids asking how
+# backslashes survive a Jinja string literal. Requiring digit-dot-digit matches
+# VERSION_RE's own floor.
 #
 # A leading "- " is stripped before the test because changelog-style feeds
 # bullet their release lines: changedetection.io's CHANGELOG.txt lists
@@ -459,8 +462,16 @@ _FIRST_LINE_MACRO = (
     "{% for l in (s or '').splitlines() %}{% set t = l | trim(' \",[]{}') %}"
     "{% if t.startswith('- ') %}{% set t = t[2:] | trim %}{% endif %}"
     "{% if t %}{% if not ns.f %}{% set ns.f = t %}{% endif %}"
-    "{% if not ns.v and (t | regex_replace('^[vV]?[0-9]+[.][0-9].*$', '')) == '' %}"
-    "{% set ns.v = t %}{% endif %}{% endif %}{% endfor %}{{ ns.v or ns.f }}{% endmacro %}"
+    "{% set ws = t.split(' ') %}{% for w in ws %}{% set w = w | trim(' \",;:()[]{}') %}"
+    "{% if w and not ns.v and (w | regex_replace('^[vV]?[0-9]+[.][0-9].*$', '')) == '' %}"
+    "{% set ns.v = w %}"
+    # VERSION_RE keeps a trailing " beta N" (macOS seeds), so the macro must too,
+    # or a beta-to-beta alert reads "26.2 → 26.2".
+    "{% if ws | length > loop.index0 + 2 and ws[loop.index0 + 1] | lower == 'beta' "
+    "and ws[loop.index0 + 2] | trim(' \",;:()[]{}') "
+    "and (ws[loop.index0 + 2] | trim(' \",;:()[]{}') | regex_replace('^[0-9]+$', '')) == '' %}"
+    "{% set ns.v = ns.v ~ ' beta ' ~ (ws[loop.index0 + 2] | trim(' \",;:()[]{}')) %}{% endif %}"
+    "{% endif %}{% endfor %}{% endif %}{% endfor %}{{ ns.v or ns.f }}{% endmacro %}"
     "{% set name = watch_title.split(' · ')[0] %}{% set new = first(current_snapshot) %}"
 )
 ALERT_TITLE = _FIRST_LINE_MACRO + "{{ name }}: {{ new or 'changed' }}"
@@ -488,11 +499,19 @@ def alert_links(items: list[dict], cfg: dict) -> dict[str, str]:
     return links
 
 
-def sync_alert_template(client: Client, items: list[dict], cfg: dict) -> str | None:
+def find_tag_uuid(client: Client, tag: str) -> str | None:
+    """UUID of the tag named `tag`. A watch's own `tags` list is not used for
+    this: it holds every tag on the watch in no guaranteed order."""
+    try:
+        return next((u for u, t in client.list_tags().items() if t.get("title") == tag), None)
+    except (RuntimeError, OSError, ValueError):  # optional: never sink a good watch list
+        return None
+
+
+def sync_alert_template(client: Client, items: list[dict], cfg: dict, tag_uuid: str | None) -> str | None:
     """Write the tag's notification templates if they differ. Returns a warning."""
     title = ALERT_TITLE
     body = ALERT_BODY.replace("__LINKS__", json.dumps(alert_links(items, cfg), ensure_ascii=False, sort_keys=True))
-    tag_uuid = next((u for u, t in client.list_tags().items() if t.get("title") == cfg["tag"]), None)
     if tag_uuid is None:
         return f"Tag {cfg['tag']!r} not found; alert template not synced"
     tag = client.get_tag(tag_uuid)
@@ -605,8 +624,8 @@ def version_span(candidates: list[str], installed: str | None) -> dict:
     # No exact match (prerelease suffix drift, a version never published to
     # this endpoint, a "latest"-only snapshot). Fall back to numeric membership
     # -- but keep the upstream order of whatever qualifies.
-    latest_key, _ = _version_key(candidates[0])
-    inst_key, _ = _version_key(installed or "")
+    latest_key = _version_key(candidates[0])[0]
+    inst_key = _version_key(installed or "")[0]
     span = [
         v
         for v in candidates
@@ -701,26 +720,28 @@ def read_installed(spec, name: str, cfg: dict) -> tuple[str | None, str]:
 
 
 def _version_key(v: str):
-    """(numeric tuple, is_prerelease) for ordering comparisons."""
+    """(numeric tuple, is_prerelease, prerelease numbers) for ordering.
+
+    The prerelease numbers order two prereleases of one version: rc1 < rc2,
+    -b.90 < -b.91, "beta 1" < "beta 2". A bare "b" counts as a prerelease
+    marker because AdGuard Home tags betas as "v0.108.0-b.90".
+    """
     v = v.strip().lower()
     v = re.sub(r"^(version\s+|v)", "", v)
     m = re.match(r"(\d+(?:\.\d+)*)", v)
     nums = tuple(int(x) for x in m.group(1).split(".")) if m else ()
     rest = v[m.end():] if m else v
-    prerelease = bool(re.search(r"(alpha|beta|rc|preview|dev)", rest))
-    return nums, prerelease
+    prerelease = bool(re.search(r"(alpha|beta|rc|preview|dev|\bb\.?\d)", rest))
+    pre_nums = tuple(int(x) for x in re.findall(r"\d+", rest))
+    return nums, prerelease, pre_nums
 
 
 def compare_versions(installed: str | None, latest: str | None, latest_full: str = "") -> str:
     """'behind', 'current', 'ahead', or 'unknown'."""
     if not installed or not latest:
         return "unknown"
-    b_i = re.search(r"\(([0-9A-Za-z]+)\)", installed)
-    b_l = re.search(r"\(([0-9A-Za-z]+)\)", latest_full or latest)
-    if b_i and b_l:  # macOS-style build ids are the reliable comparison
-        return "current" if b_i.group(1) == b_l.group(1) else "behind"
-    ni, pi = _version_key(installed)
-    nl, pl = _version_key(latest)
+    ni, pi, si = _version_key(installed)
+    nl, pl, sl = _version_key(latest)
     if not ni or not nl:
         return "current" if installed.strip().lstrip("v") == latest.strip().lstrip("v") else "unknown"
     # Pad so 7.3 and 7.3.0 compare equal.
@@ -731,8 +752,17 @@ def compare_versions(installed: str | None, latest: str | None, latest_full: str
         return "behind"
     if ni > nl:
         return "ahead"
+    # Same public version. macOS-style build ids decide when both sides carry
+    # one: sw_vers reports a beta as "26.2 (25C5031e)" with no "beta" word, so
+    # the build is the only thing that tells one 26.2 seed from the next.
+    b_i = re.search(r"\(([0-9A-Za-z]+)\)", installed)
+    b_l = re.search(r"\(([0-9A-Za-z]+)\)", latest_full or latest)
+    if b_i and b_l:
+        return "current" if b_i.group(1) == b_l.group(1) else "behind"
     if pi and not pl:
         return "behind"
+    if pi and pl and si != sl:
+        return "behind" if si < sl else "ahead"
     return "current"
 
 
@@ -743,15 +773,12 @@ def fetch_items(client: Client, cfg: dict) -> tuple[list[dict], str | None, list
     watches = client.list_watches(cfg["tag"])
     items: list[dict] = []
     warnings: list[str] = []
-    tag_uuid: str | None = None
+    tag_uuid = find_tag_uuid(client, cfg["tag"])
     puts = 0
 
     for uuid, w in watches.items():
         title = w.get("title") or w.get("page_title") or w.get("url", uuid)
         name, stored_version = split_title(title)
-        tags = w.get("tags") or []
-        if tag_uuid is None and tags:
-            tag_uuid = tags[0]
 
         snapshot = client.latest_snapshot(uuid)
         version, first_line = parse_version(snapshot) if snapshot else (None, "")
@@ -1291,21 +1318,20 @@ def render(
             version = f"{installed} → {version}"
         marker = "• " if (not i["viewed"] and i["last_changed"]) else ""
         attrs = [f"href={base}/diff/{i['uuid']}"]
+        # Collected and joined into ONE tooltip= param: an unknown row with no
+        # parsed version has two things to say, and SwiftBar takes one tooltip.
+        tooltips: list[str] = []
         if i["last_error"]:
             attrs.append(f"color={COLOR_ERROR}")
-            attrs.append(f'tooltip="{esc_tooltip(str(i["last_error"]))}"')
+            tooltips.append(str(i["last_error"]))
         elif status == "behind":
             attrs.append(f"color={COLOR_ACCENT}")
-            # This branch sets only a colour today, so the tooltip slot is free
-            # -- the error and unknown branches are mutually exclusive with it,
-            # and the "snapshot starts" tooltip below cannot fire for a behind
-            # row (it has a parsed version by definition).
             entry = entries.get(
                 summary_key(i["name"], i.get("installed"), i.get("version"))
             )
             state = (entry or {}).get("state")
             if state == "ready" and entry.get("text"):
-                attrs.append(f'tooltip="{esc_tooltip(entry["text"])}"')
+                tooltips.append(entry["text"])
             elif (
                 state not in ("none", "error")
                 and cfg["summaries"]
@@ -1316,11 +1342,13 @@ def render(
                 and summary_repo_for(i, cfg)
             ):
                 # Missing, or deliberately queued behind the batch gate.
-                attrs.append('tooltip="Summary pending…"')
+                tooltips.append("Summary pending…")
         elif status == "unknown":
-            attrs.append(f'tooltip="{esc_tooltip("Installed version unknown (source: " + str(i.get("source")) + ")")}"')
+            tooltips.append(f"Installed version unknown (source: {i.get('source')})")
         if i["version"] is None and i["first_line"]:
-            attrs.append(f'tooltip="{esc_tooltip("Snapshot starts: " + i["first_line"])}"')
+            tooltips.append("Snapshot starts: " + i["first_line"])
+        if tooltips:
+            attrs.append(f'tooltip="{esc_tooltip(" · ".join(tooltips))}"')
         since = i.get("since") or 0
         date = f"[{format_date(since)}] " if since else ""
         # No alternate=true line here: SwiftBar hangs the "--" submenu off the
@@ -1388,7 +1416,7 @@ def main() -> None:
         items, tag_uuid, warnings = fetch_items(client, cfg)
         if cfg["alert_template"]:
             try:
-                warning = sync_alert_template(client, items, cfg)
+                warning = sync_alert_template(client, items, cfg, tag_uuid)
             except (RuntimeError, OSError, ValueError) as exc:  # never lose the menu over it
                 warning = f"Alert template sync failed: {exc}"
             if warning:
