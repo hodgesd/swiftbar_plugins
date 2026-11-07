@@ -189,12 +189,12 @@ def build_tooltip(sym: str, d: MarketData) -> str:
 
 
 def footer(results: dict[str, MarketData], cached_at: datetime.datetime | None) -> str:
-    """Close date when it isn't today, then either the update time or a stale warning."""
+    """Oldest close date when it isn't today, then either the update time or a stale warning."""
     today = datetime.date.today().isoformat()
-    latest = max((d.as_of for d in results.values() if d.as_of), default="")
+    oldest = min((d.as_of for d in results.values() if d.as_of), default="")
     parts = []
-    if latest and latest != today:
-        parts.append(datetime.date.fromisoformat(latest).strftime("%a %m/%d close"))
+    if oldest and oldest != today:
+        parts.append(datetime.date.fromisoformat(oldest).strftime("%a %m/%d close"))
     if cached_at:
         parts.append(f"cached {cached_at:%I:%M %p %a}, fetch failed")
     else:
@@ -275,7 +275,11 @@ def load_cache() -> tuple[dict[str, MarketData], datetime.datetime | None]:
 
 def check() -> int:
     """Per-symbol close date, price, 200 EMA distance and signal; exit 1 if any is missing."""
-    results = fetch_data()
+    try:
+        results = fetch_data()
+    except Exception as exc:  # noqa: BLE001 — reported, not raised
+        print(f"FAIL  {exc}")
+        return 1
     ok = True
     for sym in SYMBOLS:
         d = results.get(sym)
@@ -297,11 +301,12 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001 — any failure degrades to cache
         fresh, error = {}, str(exc)
     cached, cached_at = load_cache()
-    # yfinance returns an empty table instead of raising when Yahoo is unreachable, so an
-    # empty result must never replace the last good cache (it did, until v3.1).
-    if fresh:
-        save_cache(fresh)
     results = {**cached, **fresh}
+    # yfinance returns an empty table instead of raising when Yahoo is unreachable, so an
+    # empty result must never replace the last good cache (it did, until v3.1). A partial
+    # result is saved merged over the cache so the symbols it lacks survive to the next run.
+    if fresh:
+        save_cache(results)
     if not results:
         render_error(error or "no data from Yahoo")
         return

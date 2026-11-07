@@ -120,9 +120,9 @@ Filenames use format: `name.{interval}.py` where interval is:
 
 **market_indices_uv.30m.py**: Five ETF proxies (VOO, QQQ, IWM, VXUS, GLD) with 50/200 EMA mean-reversion signals (yfinance, PEP 723 script)
 - `HISTORY_PERIOD` is `2y` because the EMA is SMA-seeded over 200 closes: with `1y` (252 closes) the "200 EMA" still carried 59% of the seed and read GLD 3% high, flipping its signal
-- yfinance returns an empty table instead of raising when Yahoo is unreachable, so `main` merges fresh rows over cached ones and only saves a non-empty result; any cached row turns the footer into an orange "cached …, fetch failed" line. The footer also shows the close date when it isn't today (weekends, holidays)
+- yfinance returns an empty table instead of raising when Yahoo is unreachable, so `main` merges fresh rows over cached ones and saves that merged result only when the fetch returned something, so a partial fetch can't drop symbols from the cache; any cached row turns the footer into an orange "cached …, fetch failed" line. The footer also shows the oldest close date when it isn't today (weekends, holidays)
 - The menu bar cycles one symbol per run (`market_cycle.json`) and the icon points down when that symbol is red
-- `./market_indices_uv.30m.py --check` prints per-symbol close date / price / 200 EMA distance / signal and exits 1 if a symbol or its 200 EMA is missing; cache regression tests in `tests/test_market_indices.py`
+- `./market_indices_uv.30m.py --check` prints per-symbol close date / price / 200 EMA distance / signal and exits 1 (FAIL line, no traceback) if the fetch fails or a symbol or its 200 EMA is missing; cache regression tests in `tests/test_market_indices.py`
 
 ## Configuration Management
 

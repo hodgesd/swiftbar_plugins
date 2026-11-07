@@ -47,6 +47,15 @@ def test_empty_fetch_keeps_cache_and_marks_it_stale(monkeypatch, capsys):
     assert "fetch failed | color=orange" in out
 
 
+def test_partial_fetch_is_saved_merged_over_cache(monkeypatch, capsys):
+    mi.save_cache({"VOO": GOOD})
+    fresh = {sym: GOOD for sym in mi.SYMBOLS if sym != "VOO"}
+    monkeypatch.setattr(mi, "fetch_data", lambda: fresh)
+    mi.main()
+    assert "fetch failed | color=orange" in capsys.readouterr().out
+    assert set(mi.load_cache()[0]) == set(mi.SYMBOLS)
+
+
 def test_full_fetch_is_saved_and_not_marked_stale(monkeypatch, capsys):
     mi.save_cache({"VOO": GOOD})
     fresh = {sym: GOOD for sym in mi.SYMBOLS}
