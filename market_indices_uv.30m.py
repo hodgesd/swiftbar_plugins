@@ -16,6 +16,7 @@
 import datetime
 import json
 import os
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -272,6 +273,23 @@ def load_cache() -> tuple[dict[str, MarketData], datetime.datetime | None]:
         return {}, None
 
 
+def check() -> int:
+    """Per-symbol close date, price, 200 EMA distance and signal; exit 1 if any is missing."""
+    results = fetch_data()
+    ok = True
+    for sym in SYMBOLS:
+        d = results.get(sym)
+        if d is None or d.ema200 is None:
+            ok = False
+            print(f"{sym:5} FAIL {'no rows' if d is None else 'no 200 EMA'}")
+            continue
+        print(
+            f"{sym:5} OK   {d.as_of}  ${d.price:.2f}  {d.daily_pct:+.1f}%"
+            f"  200 EMA {d.dist200:+.1f}%  {d.signal}"
+        )
+    return 0 if ok else 1
+
+
 def main() -> None:
     error = ""
     try:
@@ -291,4 +309,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if "--check" in sys.argv[1:]:
+        sys.exit(check())
     main()
