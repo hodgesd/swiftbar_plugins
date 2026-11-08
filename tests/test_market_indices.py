@@ -40,10 +40,14 @@ GOOD = mi.MarketData(
 
 def test_empty_fetch_keeps_cache_and_marks_it_stale(monkeypatch, capsys):
     mi.save_cache({"VOO": GOOD})
+    saved_at = mi.load_cache()[1]
     monkeypatch.setattr(mi, "fetch_data", dict)
     mi.main()
     out = capsys.readouterr().out
-    assert mi.load_cache()[0]["VOO"].price == 100.0
+    assert mi.load_cache() == (
+        {"VOO": GOOD},
+        saved_at,
+    )  # not re-saved, so not re-stamped
     assert "VOO  $100.00" in out
     assert "fetch failed | color=orange" in out
 
