@@ -7,7 +7,7 @@
 # ///
 
 # <swiftbar.title>Market Indices Quick Glance</swiftbar.title>
-# <swiftbar.version>v3.1</swiftbar.version>
+# <swiftbar.version>v3.2</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Major market indices via ETF proxies with EMA-based signals</swiftbar.desc>
@@ -31,11 +31,12 @@ LABELS = {
 YAHOO_URL = "https://finance.yahoo.com/quote"
 ICON_UP = "chart.line.uptrend.xyaxis"
 ICON_DOWN = "chart.line.downtrend.xyaxis"
+# The menu bar is the icon alone; its tint is the S&P (VOO) day, orange when cached.
+TINT_UP, TINT_DOWN, TINT_STALE = "#34C759", "#FF3B30", "#FF9500"
 
 _XDG_CACHE = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
 CACHE_DIR = Path(_XDG_CACHE) / "swiftbar-plugins"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
-STATE_FILE = CACHE_DIR / "market_cycle.json"
 CACHE_FILE = CACHE_DIR / "market_cache.json"
 
 # The EMA is seeded with a 200-close SMA, so it needs ~250 more closes to converge.
@@ -82,17 +83,6 @@ def format_change(pct: float) -> tuple[str, str]:
     sign = "+" if pct >= 0 else ""
     color = "green" if pct >= 0 else "red"
     return f"{sign}{pct:.1f}%", color
-
-
-def get_next_symbol() -> str:
-    """Read the cycle index, return the current symbol, and advance for next run."""
-    try:
-        idx = int(STATE_FILE.read_text().strip())
-    except (FileNotFoundError, ValueError):
-        idx = 0
-    symbol = SYMBOLS[idx % len(SYMBOLS)]
-    STATE_FILE.write_text(str((idx + 1) % len(SYMBOLS)))
-    return symbol
 
 
 def evaluate_signal(
@@ -205,14 +195,13 @@ def footer(results: dict[str, MarketData], cached_at: datetime.datetime | None) 
 
 
 def render(results: dict[str, MarketData], cached_at: datetime.datetime | None) -> None:
-    hero = get_next_symbol()
-    if hero in results:
-        d = results[hero]
-        change_str, color = format_change(d.daily_pct)
-        icon = ICON_DOWN if d.daily_pct < 0 else ICON_UP
-        print(f"{hero} {change_str} | sfimage={icon} color={color}")
-    else:
-        print(f"{hero} N/A | sfimage={ICON_UP}")
+    spx = results.get("VOO")
+    down = spx is not None and spx.daily_pct < 0
+    tint = TINT_STALE if cached_at else TINT_DOWN if down else TINT_UP if spx else ""
+    print(
+        f"| sfimage={ICON_DOWN if down else ICON_UP}"
+        + (f" sfcolor={tint}" if tint else "")
+    )
 
     print("---")
 
@@ -242,7 +231,7 @@ def render(results: dict[str, MarketData], cached_at: datetime.datetime | None) 
 
 
 def render_error(message: str) -> None:
-    print(f"⚠️ | sfimage={ICON_UP}")
+    print(f"| sfimage={ICON_UP} sfcolor={TINT_DOWN}")
     print("---")
     print(f"Error: {message}")
     print("---")
