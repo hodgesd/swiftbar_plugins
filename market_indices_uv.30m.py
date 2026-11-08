@@ -7,7 +7,7 @@
 # ///
 
 # <swiftbar.title>Market Indices Quick Glance</swiftbar.title>
-# <swiftbar.version>v3.0</swiftbar.version>
+# <swiftbar.version>v3.2</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Major market indices via ETF proxies with EMA-based signals</swiftbar.desc>
@@ -16,6 +16,7 @@
 import datetime
 import json
 import os
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -28,14 +29,19 @@ LABELS = {
     "GLD": "Gold",
 }
 YAHOO_URL = "https://finance.yahoo.com/quote"
+ICON_UP = "chart.line.uptrend.xyaxis"
+ICON_DOWN = "chart.line.downtrend.xyaxis"
+# The menu bar is the icon alone; its tint is the S&P (VOO) day, orange when cached.
+TINT_UP, TINT_DOWN, TINT_STALE = "#34C759", "#FF3B30", "#FF9500"
 
 _XDG_CACHE = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
 CACHE_DIR = Path(_XDG_CACHE) / "swiftbar-plugins"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
-STATE_FILE = CACHE_DIR / "market_cycle.json"
 CACHE_FILE = CACHE_DIR / "market_cache.json"
 
-HISTORY_PERIOD = "1y"
+# The EMA is seeded with a 200-close SMA, so it needs ~250 more closes to converge.
+# With "1y" (252 closes) 59% of the "200 EMA" was still the seed and GLD read 3% high.
+HISTORY_PERIOD = "2y"
 CACHE_MAX_AGE_HOURS = 24
 
 SIGNAL_PRIORITY = {
@@ -64,6 +70,9 @@ class MarketData:
     dist200: float | None
     signal: str
     trend: str
+    as_of: str = (
+        ""  # ISO date of the last close; the default keeps v3.0 caches loadable
+    )
 
 
 def pct_distance(price: float, ema: float) -> float:
@@ -74,17 +83,6 @@ def format_change(pct: float) -> tuple[str, str]:
     sign = "+" if pct >= 0 else ""
     color = "green" if pct >= 0 else "red"
     return f"{sign}{pct:.1f}%", color
-
-
-def get_next_symbol() -> str:
-    """Read the cycle index, return the current symbol, and advance for next run."""
-    try:
-        idx = int(STATE_FILE.read_text().strip())
-    except (FileNotFoundError, ValueError):
-        idx = 0
-    symbol = SYMBOLS[idx % len(SYMBOLS)]
-    STATE_FILE.write_text(str((idx + 1) % len(SYMBOLS)))
-    return symbol
 
 
 def evaluate_signal(
@@ -129,14 +127,18 @@ def fetch_data() -> dict[str, MarketData]:
     import yfinance as yf
 
     hist = yf.download(
-        SYMBOLS, period=HISTORY_PERIOD, interval="1d",
-        group_by="ticker", progress=False,
+        SYMBOLS,
+        period=HISTORY_PERIOD,
+        interval="1d",
+        group_by="ticker",
+        progress=False,
     )
 
     results: dict[str, MarketData] = {}
     for symbol in SYMBOLS:
         try:
-            closes = hist[symbol]["Close"].dropna().tolist()
+            series = hist[symbol]["Close"].dropna()
+            closes = series.tolist()
             if len(closes) < 2:
                 continue
 
@@ -159,6 +161,7 @@ def fetch_data() -> dict[str, MarketData]:
                 dist200=pct_distance(price, ema200) if ema200 else None,
                 signal=signal,
                 trend=trend,
+                as_of=series.index[-1].date().isoformat(),
             )
         except (KeyError, TypeError, IndexError):
             continue
@@ -175,22 +178,30 @@ def build_tooltip(sym: str, d: MarketData) -> str:
     return " | ".join(parts)
 
 
-def render(results: dict[str, MarketData]) -> None:
-    if not results:
-        print("N/A | sfimage=chart.line.uptrend.xyaxis")
-        print("---")
-        print("Market data unavailable")
-        print("---")
-        print("Refresh | refresh=true")
-        return
-
-    hero = get_next_symbol()
-    if hero in results:
-        d = results[hero]
-        change_str, color = format_change(d.daily_pct)
-        print(f"{hero} {change_str} | sfimage=chart.line.uptrend.xyaxis color={color}")
+def footer(results: dict[str, MarketData], cached_at: datetime.datetime | None) -> str:
+    """Oldest close date when it isn't today, then either the update time or a stale warning."""
+    today = datetime.date.today().isoformat()
+    oldest = min((d.as_of for d in results.values() if d.as_of), default="")
+    parts = []
+    if oldest and oldest != today:
+        parts.append(datetime.date.fromisoformat(oldest).strftime("%a %m/%d close"))
+    if cached_at:
+        parts.append(f"cached {cached_at:%I:%M %p %a}, fetch failed")
     else:
-        print(f"{hero} N/A | sfimage=chart.line.uptrend.xyaxis")
+        parts.append(f"updated {datetime.datetime.now():%I:%M %p}")
+    line = " · ".join(parts)
+    line = line[0].upper() + line[1:]
+    return line + (" | color=orange" if cached_at else "")
+
+
+def render(results: dict[str, MarketData], cached_at: datetime.datetime | None) -> None:
+    spx = results.get("VOO")
+    down = spx is not None and spx.daily_pct < 0
+    tint = TINT_STALE if cached_at else TINT_DOWN if down else TINT_UP if spx else ""
+    print(
+        f"| sfimage={ICON_DOWN if down else ICON_UP}"
+        + (f" sfcolor={tint}" if tint else "")
+    )
 
     print("---")
 
@@ -215,7 +226,15 @@ def render(results: dict[str, MarketData]) -> None:
             print(f"—  {sym}  unavailable | href={YAHOO_URL}/{sym}")
 
     print("---")
-    print(f"Updated {datetime.datetime.now().strftime('%I:%M %p')}")
+    print(footer(results, cached_at))
+    print("Refresh | refresh=true")
+
+
+def render_error(message: str) -> None:
+    print(f"| sfimage={ICON_UP} sfcolor={TINT_DOWN}")
+    print("---")
+    print(f"Error: {message}")
+    print("---")
     print("Refresh | refresh=true")
 
 
@@ -226,38 +245,64 @@ def save_cache(results: dict[str, MarketData]) -> None:
             "data": {sym: asdict(d) for sym, d in results.items()},
         }
         CACHE_FILE.write_text(json.dumps(payload))
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 — a cache write failure must not break the menu
         pass
 
 
-def load_cache() -> dict[str, MarketData] | None:
+def load_cache() -> tuple[dict[str, MarketData], datetime.datetime | None]:
+    """Last good data and when it was fetched; empty when missing, unreadable or over 24h old."""
     try:
         payload = json.loads(CACHE_FILE.read_text())
         ts = datetime.datetime.fromisoformat(payload["timestamp"])
         age = datetime.datetime.now() - ts
         if age.total_seconds() > CACHE_MAX_AGE_HOURS * 3600:
-            return None
-        return {sym: MarketData(**d) for sym, d in payload["data"].items()}
-    except Exception:
-        return None
+            return {}, None
+        return {sym: MarketData(**d) for sym, d in payload["data"].items()}, ts
+    except Exception:  # noqa: BLE001 — a bad cache is the same as no cache
+        return {}, None
+
+
+def check() -> int:
+    """Per-symbol close date, price, 200 EMA distance and signal; exit 1 if any is missing."""
+    try:
+        results = fetch_data()
+    except Exception as exc:  # noqa: BLE001 — reported, not raised
+        print(f"FAIL  {exc}")
+        return 1
+    ok = True
+    for sym in SYMBOLS:
+        d = results.get(sym)
+        if d is None or d.ema200 is None:
+            ok = False
+            print(f"{sym:5} FAIL {'no rows' if d is None else 'no 200 EMA'}")
+            continue
+        print(
+            f"{sym:5} OK   {d.as_of}  ${d.price:.2f}  {d.daily_pct:+.1f}%"
+            f"  200 EMA {d.dist200:+.1f}%  {d.signal}"
+        )
+    return 0 if ok else 1
 
 
 def main() -> None:
+    error = ""
     try:
-        results = fetch_data()
+        fresh = fetch_data()
+    except Exception as exc:  # noqa: BLE001 — any failure degrades to cache
+        fresh, error = {}, str(exc)
+    cached, cached_at = load_cache()
+    results = {**cached, **fresh}
+    # yfinance returns an empty table instead of raising when Yahoo is unreachable, so an
+    # empty result must never replace the last good cache (it did, until v3.1). A partial
+    # result is saved merged over the cache so the symbols it lacks survive to the next run.
+    if fresh:
         save_cache(results)
-        render(results)
-    except Exception as exc:
-        cached = load_cache()
-        if cached:
-            render(cached)
-        else:
-            print("⚠️ | sfimage=chart.line.uptrend.xyaxis")
-            print("---")
-            print(f"Error: {exc}")
-            print("---")
-            print("Refresh | refresh=true")
+    if not results:
+        render_error(error or "no data from Yahoo")
+        return
+    render(results, cached_at if len(fresh) < len(results) else None)
 
 
 if __name__ == "__main__":
+    if "--check" in sys.argv[1:]:
+        sys.exit(check())
     main()

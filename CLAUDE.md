@@ -118,6 +118,12 @@ Filenames use format: `name.{interval}.py` where interval is:
 - HTML pages are login-gated behind a Cloudflare challenge and the host 429s request bursts; keep it to the two feed requests per run. Fetch attempts (good or failed) are at least `MIN_FETCH_INTERVAL` (5 min) apart, so wake / Refresh reruns replay the cache. A failed fetch shows the last good pair from `~/.cache/swiftbar-plugins/cprt/`, marked stale
 - `./cprt.1h.py --check` prints per-feed counts and exits 1 on failure; tests in `tests/test_cprt.py`
 
+**market_indices_uv.30m.py**: Five ETF proxies (VOO, QQQ, IWM, VXUS, GLD) with 50/200 EMA mean-reversion signals (yfinance, PEP 723 script)
+- `HISTORY_PERIOD` is `2y` because the EMA is SMA-seeded over 200 closes: with `1y` (252 closes) the "200 EMA" still carried 59% of the seed and read GLD 3% high, flipping its signal
+- yfinance returns an empty table instead of raising when Yahoo is unreachable, so `main` merges fresh rows over cached ones and saves that merged result only when the fetch returned something, so a partial fetch can't drop symbols from the cache; any cached row turns the footer into an orange "cached …, fetch failed" line. The footer also shows the oldest close date when it isn't today (weekends, holidays)
+- The menu bar is the icon alone, no text: it points down and tints red when the S&P (VOO) is down on the day, green when up, orange when any row is cached
+- `./market_indices_uv.30m.py --check` prints per-symbol close date / price / 200 EMA distance / signal and exits 1 (FAIL line, no traceback) if the fetch fails or a symbol or its 200 EMA is missing; cache regression tests in `tests/test_market_indices.py`
+
 ## Configuration Management
 
 Plugins that need persistent configuration use:
@@ -136,7 +142,7 @@ Note: The project is transitioning from `requirements.in/txt` to `pyproject.toml
 
 ## Testing Plugins
 
-**Run the parser tests** (bball, nba, home_comps, deals, cprt):
+**Run the parser tests** (bball, nba, home_comps, deals, cprt, market_indices):
 ```bash
 uv run --with pytest --with aiohttp --with beautifulsoup4 --with truststore pytest tests/
 ```
