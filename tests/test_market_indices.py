@@ -10,6 +10,7 @@ import importlib.util
 import os
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 os.environ["XDG_CACHE_HOME"] = (
@@ -48,12 +49,14 @@ def test_empty_fetch_keeps_cache_and_marks_it_stale(monkeypatch, capsys):
 
 
 def test_partial_fetch_is_saved_merged_over_cache(monkeypatch, capsys):
-    mi.save_cache({"VOO": GOOD})
+    mi.save_cache({"VOO": GOOD, "QQQ": replace(GOOD, price=90.0)})
     fresh = {sym: GOOD for sym in mi.SYMBOLS if sym != "VOO"}
     monkeypatch.setattr(mi, "fetch_data", lambda: fresh)
     mi.main()
     assert "fetch failed | color=orange" in capsys.readouterr().out
-    assert set(mi.load_cache()[0]) == set(mi.SYMBOLS)
+    cached, _ = mi.load_cache()
+    assert set(cached) == set(mi.SYMBOLS)
+    assert cached["QQQ"].price == 100.0  # fresh wins over cached
 
 
 def test_full_fetch_is_saved_and_not_marked_stale(monkeypatch, capsys):
