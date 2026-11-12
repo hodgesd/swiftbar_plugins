@@ -10,7 +10,7 @@
 # ///
 
 # <swiftbar.title>Combined Tech News</swiftbar.title>
-# <swiftbar.version>v2.4</swiftbar.version>
+# <swiftbar.version>v2.5</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Combines STLToday, STL PR, BND, Techmeme, Lobste.rs, Hacker News, Simon Willison, and the Local & Agentic AI, Homelab/NixOS, NBA, EV/Solar and Fitness 50+ topics in one dropdown</swiftbar.desc>
@@ -28,7 +28,7 @@ import aiohttp
 import feedparser
 import requests
 from aiohttp import ClientTimeout
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 import hashlib
 import json
 import os
@@ -792,18 +792,14 @@ STL_CATEGORY_ABBREVIATIONS = {
     'TheLatest': 'New',
 }
 
-# BND configuration
-BND_CATEGORY_ABBREVIATIONS = {
-    'Opinion Columns & Blogs': '[Op Ed]',
-    'High School Football': '[HS Football]',
-    'Crime': '[Crime]',
-    'Metro-East News': '[Metro]',
-    'Business': '[Biz]',
-    'Food & Drink': '[Food]',
-    'St. Louis Cardinals': '[Cards]',
-    'Belleville': '[BLV]',
-    'Latest News': '[Latest]'
-}
+# BND configuration. bnd.com's CDN drops every non-browser client (HTTP/2 reset, HTTP/1.1
+# hang, robots.txt included), so the section reads Google News' index of the site instead.
+# Rows open Google's redirect link, which lands on the bnd.com article in the browser.
+# The query stops at /news/local because the whole site is mostly wire copy.
+BND_MAX_AGE_DAYS = 7
+BND_FEED = ("https://news.google.com/rss/search"
+            f"?q=site:bnd.com/news/local+when:{BND_MAX_AGE_DAYS}d&hl=en-US&gl=US&ceid=US:en")
+BND_TITLE_SUFFIX = " - Belleville News-Democrat"
 
 @dataclass
 class Article:
@@ -902,24 +898,23 @@ def format_stl_headline(article: Article) -> str:
     return f"-- {display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
 
 
-def format_bnd_headline(article: Article) -> str:
-    """Format BND article for SwiftBar menu display"""
-    display_headline = article.headline
-    if article.category:
-        abbreviated = BND_CATEGORY_ABBREVIATIONS.get(article.category, f'[{article.category}]')
-        display_headline = f"{abbreviated} {article.headline}"
-        tooltip_text = f"{article.category}: {article.headline}"
-    else:
-        tooltip_text = article.headline
+def parse_bnd_entries(entries, cutoff: float) -> list:
+    """(title, link) pairs from the Google News feed, newest first.
 
-    # Add summary to tooltip if available
-    if article.summary:
-        tooltip_text = f"{tooltip_text}\n\n{article.summary}"
-
-    # Escape quotes in tooltip
-    tooltip_text = tooltip_text.replace('\\', '\\\\').replace('"', '\\"')
-    return (f'-- '
-            f'{display_headline} | href={article.link} tooltip="{tooltip_text}"\n')
+    The index also returns the site's section pages: most carry a years-old date, and the
+    freshly dated ones are titled "Section | Belleville News-Democrat". A story headline
+    never carries the pipe.
+    """
+    stories = []
+    for entry in entries:
+        title = entry.get('title', '').removesuffix(BND_TITLE_SUFFIX).strip()
+        published = entry.get('published_parsed')
+        when = calendar.timegm(published) if published else 0
+        if not title or '|' in title or when < cutoff:
+            continue
+        stories.append((when, title, entry.get('link', '')))
+    stories.sort(reverse=True)
+    return [(title, link) for _, title, link in stories[:MAX_HEADLINES]]
 
 
 def format_stlpr_headline(article: Article) -> str:
@@ -1267,96 +1262,15 @@ async def fetch_bnd(buffer=None):
 
     buffer.write(f"BND | href={BND_URL} color=#1976D2\n")
 
-    def sync_fetch_bnd():
-        try:
-            session = setup_sync_session()
-            time.sleep(1)  # Be nice to the server
-            response = session.get(BND_URL, timeout=20, verify=True)
-            response.raise_for_status()
-
-            soup = BeautifulSoup(response.text, 'html.parser')
-            articles = []
-            seen_links = set()
-
-            def normalize_link(link: str) -> str:
-                """Normalize link by removing fragments and ensuring full URL"""
-                base_link = link.split('#')[0]
-                if not base_link.startswith('http'):
-                    base_link = f"{BND_URL}{base_link}"
-                return base_link
-
-            def clean_text(text: str) -> str:
-                """Clean whitespace and newlines from text"""
-                return re.sub(r'\s+', ' ', text).strip()
-
-            def extract_article_from_element(element: Tag, category: str = '') -> Optional[Article]:
-                """Extract article information from HTML element"""
-                headline_elem = element.find('h3')
-                if not headline_elem or not (link_elem := headline_elem.find('a')):
-                    return None
-
-                link = link_elem.get('href', '')
-                normalized_link = normalize_link(link)
-
-                if not link or normalized_link in seen_links:
-                    return None
-
-                seen_links.add(normalized_link)
-
-                if not category:
-                    kicker = element.find(class_='kicker')
-                    category = clean_text(kicker.text) if kicker else ''
-
-                # Extract summary/description if available
-                summary = ''
-                summary_elem = element.find('p', class_='blurb')
-                if not summary_elem:
-                    summary_elem = element.find('div', class_='summary')
-                if not summary_elem:
-                    summary_elem = element.find('p')
-                if summary_elem:
-                    summary = clean_text(summary_elem.text)
-
-                return Article(
-                    headline=clean_text(headline_elem.text),
-                    link=link,
-                    summary=summary,
-                    category=category
-                ).with_full_link(BND_URL)
-
-            # Get main grid articles
-            if content_area := soup.find('section', class_='grid'):
-                for article_elem in content_area.find_all('article', recursive=True):
-                    if not article_elem.find_parent(class_='partner-digest-group'):
-                        if article := extract_article_from_element(article_elem):
-                            articles.append(article)
-                            if len(articles) >= MAX_HEADLINES:
-                                break
-
-            # Get latest news articles if we need more
-            if len(articles) < MAX_HEADLINES:
-                if latest_section := soup.find('div', attrs={'data-tb-region': 'latest'}):
-                    for article_elem in latest_section.find_all('div', class_='package'):
-                        if article := extract_article_from_element(article_elem, category='Latest News'):
-                            articles.append(article)
-                            if len(articles) >= MAX_HEADLINES:
-                                break
-
-            return articles[:MAX_HEADLINES]
-
-        except Exception as e:
-            return [f"Error fetching BND: {e}"]
-
     try:
-        articles = await asyncio.to_thread(sync_fetch_bnd)
-
-        if isinstance(articles, list) and articles and isinstance(articles[0], str):
-            # Error message
-            buffer.write(f"--⚠️ {articles[0]}\n")
-        else:
-            for article in articles:
-                buffer.write(format_bnd_headline(article))
-
+        feed = await asyncio.to_thread(feedparser.parse, BND_FEED)
+        if not feed.entries:
+            raise RuntimeError(feed.get('bozo_exception') or 'feed returned no entries')
+        stories = parse_bnd_entries(feed.entries, time.time() - BND_MAX_AGE_DAYS * 86400)
+        if not stories:
+            buffer.write(f"--No stories in the last {BND_MAX_AGE_DAYS} days | color=gray\n")
+        for title, link in stories:
+            buffer.write(format_headline(title, link))
     except Exception as e:
         buffer.write(f"--⚠️ Error fetching BND: {e} | color=red\n")
 
