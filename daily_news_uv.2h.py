@@ -10,7 +10,7 @@
 # ///
 
 # <swiftbar.title>Combined Tech News</swiftbar.title>
-# <swiftbar.version>v2.6</swiftbar.version>
+# <swiftbar.version>v2.7</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Combines STLToday, STL PR, BND, Techmeme, Lobste.rs, Hacker News, Simon Willison, and the Local & Agentic AI, Homelab/NixOS, NBA, EV/Solar and Fitness 50+ topics in one dropdown</swiftbar.desc>
@@ -128,17 +128,22 @@ def podcast_token() -> Optional[str]:
         return None
 
 
+# Google News links (the BND section) end on a JavaScript redirect page the podcast worker
+# can't follow; YouTube links are videos with no article text to read.
+NO_PODCAST_HOSTS = {"news.google.com", "youtube.com", "www.youtube.com", "m.youtube.com",
+                    "youtu.be"}
+
+
 def podcast_line(label: str, url: Optional[str]) -> str:
     """The ⌥ alternate of a headline row: queues `url` on the read-later podcast.
 
     SwiftBar swaps it in for the line printed just before it while Option is held, so it
     must directly follow its headline at the same depth. `label` is that row's escaped text.
     Empty when there is no article URL, the URL can't be a SwiftBar param, or no token.
-    Also empty for Google News links (the BND section): they end on a JavaScript redirect
-    page the podcast worker can't follow, so every send would come back as a failure."""
+    Also empty for hosts in NO_PODCAST_HOSTS, where every send would come back a failure."""
     if not url or not url.startswith(("http://", "https://")) or re.search(r'[\s"]', url):
         return ""
-    if urlsplit(url).hostname == "news.google.com":
+    if urlsplit(url).hostname in NO_PODCAST_HOSTS:
         return ""
     if podcast_token() is None:
         return ""
