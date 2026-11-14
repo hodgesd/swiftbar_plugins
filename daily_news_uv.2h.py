@@ -10,7 +10,7 @@
 # ///
 
 # <swiftbar.title>Combined Tech News</swiftbar.title>
-# <swiftbar.version>v2.5</swiftbar.version>
+# <swiftbar.version>v2.6</swiftbar.version>
 # <swiftbar.author>Derrick Hodges</swiftbar.author>
 # <swiftbar.author.github>hodgesd</swiftbar.author.github>
 # <swiftbar.desc>Combines STLToday, STL PR, BND, Techmeme, Lobste.rs, Hacker News, Simon Willison, and the Local & Agentic AI, Homelab/NixOS, NBA, EV/Solar and Fitness 50+ topics in one dropdown</swiftbar.desc>
@@ -100,6 +100,80 @@ def debug(msg: str) -> None:
 
 def warn(msg: str) -> None:
     print(f"[daily_news] {msg}", file=sys.stderr)
+
+
+# ── Read-later podcast ───────────────────────────────────────────────────────────────────
+# Hold ⌥ over a headline and it becomes "Podcast · <headline>": a click queues the article on
+# the read-later podcast on nixos-infra (nix-config docs/PODCAST.md), which reads it aloud
+# into the Overcast feed. The intake answers 202 at once, so the only feedback here is a
+# "queued" notification; Overcast alerts when the episode is ready, and ntfy topic "podcast"
+# when it can't be read (a paywall with no archive.today snapshot).
+PODCAST_INTAKE_URL = "https://podcast-intake.jaguar-duckbill.ts.net/enqueue"
+# sops-nix secret on the Macs (nix-config); PODCAST_INTAKE_TOKEN in the environment wins.
+# Without a token the ⌥ rows are left out rather than shown and failing.
+PODCAST_TOKEN_FILE = "/run/secrets/podcast-intake-token"
+# SwiftBar sets SWIFTBAR_PLUGIN_PATH; a click runs this same file with --podcast <url>.
+PLUGIN_PATH = os.environ.get("SWIFTBAR_PLUGIN_PATH") or os.path.abspath(__file__)
+
+
+@functools.lru_cache(maxsize=None)
+def podcast_token() -> Optional[str]:
+    token = os.environ.get("PODCAST_INTAKE_TOKEN", "").strip()
+    if token:
+        return token
+    try:
+        with open(PODCAST_TOKEN_FILE) as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+def podcast_line(label: str, url: Optional[str]) -> str:
+    """The ⌥ alternate of a headline row: queues `url` on the read-later podcast.
+
+    SwiftBar swaps it in for the line printed just before it while Option is held, so it
+    must directly follow its headline at the same depth. `label` is that row's escaped text.
+    Empty when there is no article URL, the URL can't be a SwiftBar param, or no token.
+    Also empty for Google News links (the BND section): they end on a JavaScript redirect
+    page the podcast worker can't follow, so every send would come back as a failure."""
+    if not url or not url.startswith(("http://", "https://")) or re.search(r'[\s"]', url):
+        return ""
+    if urlsplit(url).hostname == "news.google.com":
+        return ""
+    if podcast_token() is None:
+        return ""
+    return (f'-- Podcast · {label} | bash="{PLUGIN_PATH}" param1=--podcast param2="{url}" '
+            f'terminal=false sfimage=headphones alternate=true trim=false\n')
+
+
+def notify(title: str, message: str) -> None:
+    # SECURITY: the text goes in as argv, never spliced into the script, so a headline or
+    # an error message can't inject AppleScript.
+    subprocess.run(["osascript", "-e", "on run argv",
+                    "-e", "display notification (item 2 of argv) with title (item 1 of argv)",
+                    "-e", "end run", title, message],
+                   check=False, timeout=10, capture_output=True)
+
+
+def send_to_podcast(url: str) -> int:
+    """`--podcast <url>`: queue the article and say so in a notification, since nothing else
+    shows the result of a terminal=false click. Exit 1 when it was not queued."""
+    token = podcast_token()
+    if token is None:
+        notify("Not sent to Read Later", f"No podcast intake token in {PODCAST_TOKEN_FILE}")
+        return 1
+    try:
+        resp = requests.post(PODCAST_INTAKE_URL, json={"url": url}, timeout=15,
+                             headers={"Authorization": f"Bearer {token}"})
+    except requests.RequestException as exc:
+        notify("Not sent to Read Later", f"Intake unreachable (on the tailnet?): {exc}"[:200])
+        return 1
+    if resp.status_code != 202:
+        notify("Not sent to Read Later", f"The intake answered {resp.status_code}: {resp.text}"[:200])
+        return 1
+    host = (urlsplit(url).hostname or url).removeprefix("www.")
+    notify("Queued for Read Later", f"{host} · Overcast alerts when it's ready")
+    return 0
 
 
 @functools.lru_cache(maxsize=None)
@@ -864,8 +938,9 @@ async def fetch_and_buffer(scraper):
     return buffer.getvalue()
 
 
-def format_headline(title, url, tags=None, summary=None):
-    """Format headlines with full title and summary tooltip."""
+def format_headline(title, url, tags=None, summary=None, podcast_url=None):
+    """Format headlines with full title and summary tooltip, plus the ⌥ podcast row.
+    `podcast_url` is the article when `url` is a discussion page."""
     tags_text = f"[{', '.join(tags)}] " if tags else ""
     full_title = f"{tags_text}{title}"
 
@@ -886,7 +961,8 @@ def format_headline(title, url, tags=None, summary=None):
     full_title = full_title.replace('|', ' ')  # Remove pipes from display title
     full_title = full_title.replace('"', '\\"')
 
-    return f"-- {full_title} | href={url} tooltip=\"{tooltip_text}\" trim=false\n"
+    return (f"-- {full_title} | href={url} tooltip=\"{tooltip_text}\" trim=false\n"
+            + podcast_line(full_title, podcast_url or url))
 
 
 def format_stl_headline(article: Article) -> str:
@@ -895,7 +971,8 @@ def format_stl_headline(article: Article) -> str:
 
     # Escape quotes in tooltip
     tooltip_text = article.summary.replace('\\', '\\\\').replace('"', '\\"')
-    return f"-- {display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
+    return (f"-- {display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
+            + podcast_line(display_headline, article.link))
 
 
 def parse_bnd_entries(entries, cutoff: float) -> list:
@@ -940,7 +1017,8 @@ def format_stlpr_headline(article: Article) -> str:
 
     # Escape quotes in tooltip
     tooltip_text = tooltip_text.replace('\\', '\\\\').replace('"', '\\"')
-    return f"-- {display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
+    return (f"-- {display_headline} | href={article.link} tooltip=\"{tooltip_text}\"\n"
+            + podcast_line(display_headline, article.link))
 
 
 async def fetch_hn_topic(session, queries, max_items=MAX_TOPIC_HEADLINES, since_epoch=None):
@@ -1134,6 +1212,7 @@ async def fetch_hnt(buffer=None):
 
                 buffer.write(
                     f'-- {formatted_title_escaped} | href={HN_URL}item?id={story_id} tooltip="{tooltip_text}" trim=false\n'
+                    + podcast_line(formatted_title_escaped, hit.get("url"))
                 )
     except Exception as e:
         buffer.write(f"-- Error fetching HN: {e} | color=red\n")
@@ -1615,7 +1694,8 @@ async def render_topic(topic: Topic, buffer=None):
     for item in items:
         preview = previews.get(item.preview_url or item.link, '')
         summary = max((item.summary, preview), key=len)
-        buffer.write(format_headline(item.title, item.link, tags=[item.tag], summary=summary or None))
+        buffer.write(format_headline(item.title, item.link, tags=[item.tag], summary=summary or None,
+                                     podcast_url=item.preview_url or item.link))
 
 
 async def main():
@@ -1653,10 +1733,12 @@ async def main():
 
 def parse_cli(argv):
     """SwiftBar runs the plugin with no arguments. `--summarize <id> [--model M] [-o k=v ...]`
-    is the bake-off hook: one story through the llm path, no caches touched."""
+    is the bake-off hook: one story through the llm path, no caches touched. `--podcast <url>`
+    is what a ⌥ headline row runs."""
     import argparse
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--summarize', metavar='STORY_ID')
+    parser.add_argument('--podcast', metavar='URL')
     parser.add_argument('--model')
     parser.add_argument('-o', '--option', action='append', metavar='KEY=VALUE',
                         help='replace summary_options; "-o none" sends no options')
@@ -1669,6 +1751,8 @@ def parse_cli(argv):
 
 if __name__ == "__main__":
     cli, cli_options = parse_cli(sys.argv[1:])
+    if cli.podcast:
+        sys.exit(send_to_podcast(cli.podcast))
     if cli.summarize:
         sys.exit(asyncio.run(summarize_cli(cli.summarize, cli.model, cli_options)))
     asyncio.run(main())
