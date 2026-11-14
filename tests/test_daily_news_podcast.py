@@ -103,3 +103,8 @@ def test_send_without_a_token_does_not_post(no_token, monkeypatch: pytest.Monkey
 def test_google_news_links_get_no_podcast_row(token: str) -> None:
     link = "https://news.google.com/rss/articles/CBMifkFVX3lx?oc=5"
     assert dn.format_headline("BND story", link).count("\n") == 1
+
+
+def test_youtube_links_get_no_podcast_row(token: str) -> None:
+    for link in ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ"):
+        assert dn.format_headline("A video", link).count("\n") == 1
